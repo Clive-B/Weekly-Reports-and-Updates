@@ -3,3 +3,6 @@
 *.bak
 Thumbs.db
 desktop.ini
+app/**/bin/
+app/**/obj/
+app/**/appsettings.Production.json

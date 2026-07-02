@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NCA Weekly Emerging Technologies & Trends Report</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="page">
+    <section class="sticky-identity">
+      <div class="sticky-identity-inner">
+        <div class="sticky-brand">
+          <div class="sticky-logo-shell">
+            <img class="sticky-logo" src="assets/nca-30-logo.png" alt="National Communications Authority 30 years logo">
+          </div>
+          <div class="sticky-copy">
+            <div class="sticky-kicker">National Communications Authority</div>
+            <h1 class="sticky-title">Research Innovation Strategy & Policy</h1>
+            <div class="sticky-subtitle">Weekly Emerging Technologies & Trends Report</div>
+            <div class="identity-motto">Strategy & Policy · Evidence, Innovation, Impact</div>
+          </div>
+        </div>
+        <div class="sticky-actions">
+          <span class="auth-badge" id="sessionText">Checking session...</span>
+          <button class="auth-btn hidden" id="editorSignInBtn" type="button">Editor Sign In</button>
+          <button class="auth-btn hidden" id="logoutBtn" type="button">Sign Out</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="loginPanel" class="auth-modal-inline hidden">
+      <div class="auth-card">
+        <div class="auth-card-top">
+          <h2>Editor Authentication</h2>
+          <p>Authorized editors can sign in to upload, review, approve, and publish weekly reports.</p>
+        </div>
+        <div class="auth-card-body">
+          <div class="auth-form-grid">
+            <label>Username <input id="username" autocomplete="username"></label>
+            <label>Password <input id="password" type="password" autocomplete="current-password"></label>
+          </div>
+          <div class="login-actions">
+            <button class="btn-light" id="loginBtn" type="button">Sign In</button>
+            <button class="btn-cancel" id="closeLoginBtn" type="button">Cancel</button>
+          </div>
+          <p id="loginError" class="auth-error"></p>
+        </div>
+      </div>
+    </section>
+
+    <section id="appPanel" class="hidden">
+      <section class="toolbar" id="editorPanel">
+        <div class="toolbar-top">
+          <div>
+            <h2>Weekly Update Control Panel</h2>
+            <p>Upload a Word file, review generated reports, approve publication, or inspect the audit trail.</p>
+          </div>
+          <div class="toolbar-actions">
+            <button class="btn-light tab active" data-tab="upload" type="button">Upload Word File</button>
+            <button class="btn-light tab" data-tab="content" type="button">Edit Content</button>
+            <button class="btn-outline tab" data-tab="audit" type="button">Audit Trail</button>
+            <button class="btn-outline" id="refreshBtn" type="button">Refresh Reports</button>
+          </div>
+        </div>
+
+        <div class="workflow-actions">
+          <button class="btn-light hidden" id="submitReviewBtn" type="button">Submit Review</button>
+          <button class="btn-gold hidden" id="approveBtn" type="button">Approve & Publish</button>
+          <button class="btn-outline hidden" id="rejectBtn" type="button">Reject</button>
+        </div>
+
+        <div id="uploadTab" class="tab-panel">
+          <div class="editor-grid">
+            <div class="editor-field">
+              <label for="weekStart">Reporting Week Start</label>
+              <input id="weekStart" type="date">
+            </div>
+            <div class="editor-field">
+              <label for="weekEnd">Reporting Week End</label>
+              <input id="weekEnd" type="date">
+            </div>
+            <div class="editor-field">
+              <label for="uploadTitle">Report Title</label>
+              <input id="uploadTitle">
+            </div>
+            <div class="editor-field">
+              <label for="wordFile">Word File</label>
+              <input id="wordFile" type="file" accept=".docx">
+            </div>
+          </div>
+          <div class="toolbar-actions lower-actions">
+            <button class="btn-light" id="uploadBtn" type="button">Upload Word Draft</button>
+          </div>
+          <div class="status">Uploads are saved only under the repository reports/ folder.</div>
+        </div>
+
+        <div id="contentTab" class="tab-panel hidden">
+          <div class="editor-grid two">
+            <div class="editor-field">
+              <label for="contentWeek">Reporting Week</label>
+              <input id="contentWeek">
+            </div>
+            <div class="editor-field">
+              <label for="preparedBy">Prepared By</label>
+              <input id="preparedBy">
+            </div>
+          </div>
+          <div class="editor-field full">
+            <label for="snapshot">Executive Snapshot</label>
+            <textarea id="snapshot"></textarea>
+          </div>
+          <div class="editor-grid two">
+            <div class="editor-field">
+              <label for="trendsJson">Priority Trends JSON</label>
+              <textarea id="trendsJson"></textarea>
+            </div>
+            <div class="editor-field">
+              <label for="horizonJson">Horizon JSON</label>
+              <textarea id="horizonJson"></textarea>
+            </div>
+            <div class="editor-field">
+              <label for="implicationsJson">Implications JSON</label>
+              <textarea id="implicationsJson"></textarea>
+            </div>
+            <div class="editor-field">
+              <label for="attentionJson">Attention Signals JSON</label>
+              <textarea id="attentionJson"></textarea>
+            </div>
+            <div class="editor-field">
+              <label for="assumptionsJson">Assumptions JSON</label>
+              <textarea id="assumptionsJson"></textarea>
+            </div>
+            <div class="editor-field">
+              <label for="referencesJson">References JSON</label>
+              <textarea id="referencesJson"></textarea>
+            </div>
+          </div>
+          <div class="toolbar-actions lower-actions">
+            <button class="btn-gold" id="saveContentBtn" type="button">Save Content & Regenerate Word File</button>
+          </div>
+          <p id="contentError" class="auth-error"></p>
+        </div>
+
+        <div id="auditTab" class="tab-panel hidden">
+          <div id="validationBox" class="rule-card hidden"></div>
+          <pre id="auditLog"></pre>
+        </div>
+      </section>
+
+      <section class="report-picker card" id="reportPicker">
+        <div class="section-title">
+          <h2>Reports</h2>
+          <span class="pill">Drafts · Review · Published</span>
+        </div>
+        <h3 id="reportTitle">No report selected</h3>
+        <p class="report-meta" id="reportMeta"></p>
+        <div class="report-list" id="reportList"></div>
+      </section>
+
+      <header class="hero">
+        <div class="eyebrow">National Communications Authority · Research Innovation Policy and Strategy</div>
+        <div class="hero-brand">
+          <div class="hero-logo-wrap">
+            <img class="hero-logo" src="assets/nca-30-logo.png" alt="National Communications Authority 30 years logo">
+          </div>
+          <div class="hero-title-block">
+            <h1>NCA Weekly Emerging Technologies & Trends Report</h1>
+            <p>Executive webpage for weekly intelligence updates on telecom infrastructure, digital services, policy developments, cybersecurity, AI, satellite systems, and related regulatory signals.</p>
+          </div>
+        </div>
+        <div class="meta-grid">
+          <div class="meta"><div class="k">Reporting Week</div><div class="v" id="previewWeek"></div></div>
+          <div class="meta"><div class="k">Prepared By</div><div class="v" id="previewPreparedBy"></div></div>
+          <div class="meta"><div class="k">Status</div><div class="v" id="previewStatus"></div></div>
+          <div class="meta"><div class="k">Publication Mode</div><div class="v" id="previewMode"></div></div>
+        </div>
+      </header>
+
+      <div class="layout">
+        <aside class="sidebar">
+          <h3>Report Navigation</h3>
+          <nav class="nav">
+            <a href="#snapshotPreview">1. Executive Snapshot</a>
+            <a href="#priorityPreview">2. Priority Trends to Watch</a>
+            <a href="#horizonPreview">3. Technologies on the Horizon</a>
+            <a href="#implicationsPreview">4. Regulatory & Strategic Implications</a>
+            <a href="#attentionPreview">5. Executive Attention Signals</a>
+            <a href="#notesPreview">6. Assumption Exposure & Notes</a>
+            <a href="#referencesPreview">7. References</a>
+          </nav>
+          <div class="rule-card">
+            <div class="label">Locked Reporting Standard</div>
+            <div><strong>Weekly date window must start on Monday and end on Friday.</strong></div>
+          </div>
+        </aside>
+
+        <main class="main">
+          <section id="snapshotPreview" class="card">
+            <div class="section-title"><h2>1. Executive Snapshot</h2><span class="pill">Executive Summary</span></div>
+            <div class="snapshot" id="snapshotText">Select a report to preview its executive snapshot.</div>
+          </section>
+
+          <section id="priorityPreview" class="card">
+            <div class="section-title"><h2>2. Priority Trends to Watch</h2><span class="pill" id="trendPill">Awaiting Update</span></div>
+            <div id="trendsContainer"></div>
+          </section>
+
+          <section id="horizonPreview" class="card">
+            <div class="section-title"><h2>3. Technologies & Developments on the Horizon</h2><span class="pill">Emerging Signals</span></div>
+            <div class="horizon-grid" id="horizonContainer"></div>
+          </section>
+
+          <section id="implicationsPreview" class="card">
+            <div class="section-title"><h2>4. Regulatory & Strategic Implications</h2><span class="pill">Cross-Cutting Analysis</span></div>
+            <div class="implications-grid" id="implicationsContainer"></div>
+          </section>
+
+          <section id="attentionPreview" class="card">
+            <div class="section-title"><h2>5. Executive Attention Signals</h2><span class="pill">Action Posture</span></div>
+            <div class="attention-grid" id="attentionContainer"></div>
+          </section>
+
+          <section id="notesPreview" class="card">
+            <div class="section-title"><h2>6. Assumption Exposure & Analytical Notes</h2><span class="pill">Internal Use Only</span></div>
+            <div class="notes-grid" id="notesContainer"></div>
+          </section>
+
+          <section id="referencesPreview" class="card">
+            <div class="section-title"><h2>7. References</h2><span class="pill">Sources & Validation</span></div>
+            <div class="mini-card">
+              <ul id="referencesList"></ul>
+            </div>
+          </section>
+        </main>
+      </div>
+    </section>
+
+    <div class="footer">NCA Weekly Emerging Technologies & Trends Report · Public read-only access · Monday-Friday reporting standard enabled</div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
