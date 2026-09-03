@@ -38,4 +38,6 @@ Before production use, configure:
 - `Agent:ApiKey` with a strong server-side secret.
 - HTTPS and intranet hosting controls in IIS or the approved NCA hosting environment.
 
+The automated weekly generator is under `tools/nca-weekly-agent/`. It is a Linux runner that uses the OpenAI Responses API, web search, and a strict JSON schema to produce the payload consumed by `/api/agent/run`. Deployment and offline-test instructions are in `app/WeeklyReports.Intranet/DOCKER_APP_NEEDS.md`.
+
 The legacy `Weekly Report HTML File.html` remains as the original standalone local template.

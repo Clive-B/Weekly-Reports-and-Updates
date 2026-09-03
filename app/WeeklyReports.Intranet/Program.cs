@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using System.IO.Compression;
 using Microsoft.AspNetCore.Authentication;
@@ -28,6 +29,10 @@ builder.Services.AddAuthorization(options =>
 });
 builder.Services.AddSingleton<ReportStore>();
 builder.Services.AddSingleton<PasswordVerifier>();
+builder.Services.ConfigureHttpJsonOptions(options =>
+{
+    options.SerializerOptions.Converters.Add(new JsonStringEnumConverter());
+});
 
 var app = builder.Build();
 
@@ -35,8 +40,6 @@ app.UseDefaultFiles();
 app.UseStaticFiles();
 app.UseAuthentication();
 app.UseAuthorization();
-
-var jsonOptions = new JsonSerializerOptions(JsonSerializerDefaults.Web) { WriteIndented = true };
 
 app.MapGet("/api/session", (ClaimsPrincipal user) =>
 {
@@ -51,6 +54,15 @@ app.MapGet("/api/session", (ClaimsPrincipal user) =>
         user = user.Identity.Name,
         roles = user.Claims.Where(c => c.Type == ClaimTypes.Role).Select(c => c.Value).Distinct().ToArray()
     });
+});
+
+app.MapGet("/api/health", (ReportStore store) => Results.Ok(store.CheckStorage()));
+
+app.MapGet("/api/admin/diagnostics", [Authorize(Policy = "Admin")] (
+    IConfiguration config,
+    ReportStore store) =>
+{
+    return Results.Ok(store.GetDiagnostics(config));
 });
 
 app.MapPost("/api/login", async (
@@ -348,8 +360,67 @@ static List<string> ValidateAgentContent(ReportContent content)
 
 sealed class ReportStore(IWebHostEnvironment env, IConfiguration config)
 {
-    private readonly string _repoRoot = Path.GetFullPath(Path.Combine(env.ContentRootPath, "..", ".."));
+    private readonly string _repoRoot = ResolveRepoRoot(env, config);
     private readonly JsonSerializerOptions _json = new(JsonSerializerDefaults.Web) { WriteIndented = true };
+
+    public StorageHealth CheckStorage()
+    {
+        try
+        {
+            var root = ReportsRoot();
+            var probePath = Path.Combine(root, ".storage-health");
+            File.WriteAllText(probePath, DateTimeOffset.UtcNow.ToString("O"));
+            File.Delete(probePath);
+            return new StorageHealth(true, null);
+        }
+        catch (Exception ex)
+        {
+            return new StorageHealth(false, ex.Message);
+        }
+    }
+
+    public AppDiagnostics GetDiagnostics(IConfiguration config)
+    {
+        var health = CheckStorage();
+        var reportsRoot = "";
+        string? reportsRootError = null;
+        var reports = Array.Empty<ReportSummary>();
+        var filesUnderReportsRoot = 0;
+        var systemAuditTail = Array.Empty<string>();
+
+        try
+        {
+            reportsRoot = ReportsRoot();
+            reports = List().ToArray();
+            filesUnderReportsRoot = Directory.Exists(reportsRoot)
+                ? Directory.GetFiles(reportsRoot, "*", SearchOption.AllDirectories).Length
+                : 0;
+
+            var systemAuditPath = Path.Combine(reportsRoot, "system-audit.jsonl");
+            if (File.Exists(systemAuditPath))
+            {
+                systemAuditTail = File.ReadLines(systemAuditPath).TakeLast(20).ToArray();
+            }
+        }
+        catch (Exception ex)
+        {
+            reportsRootError = ex.Message;
+        }
+
+        return new AppDiagnostics(
+            DateTimeOffset.UtcNow,
+            Path.GetFullPath(env.ContentRootPath),
+            _repoRoot,
+            reportsRoot,
+            reportsRootError,
+            health,
+            !string.IsNullOrWhiteSpace(config["Agent:ApiKey"]),
+            reports.Length,
+            reports.GroupBy(r => r.Status.ToString()).ToDictionary(g => g.Key, g => g.Count()),
+            reports.Take(10).ToArray(),
+            filesUnderReportsRoot,
+            systemAuditTail);
+    }
 
     public IReadOnlyList<ReportSummary> List()
     {
@@ -510,6 +581,28 @@ sealed class ReportStore(IWebHostEnvironment env, IConfiguration config)
         return root;
     }
 
+    private static string ResolveRepoRoot(IWebHostEnvironment env, IConfiguration config)
+    {
+        var configured = config["Reports:RepoRoot"];
+        if (!string.IsNullOrWhiteSpace(configured))
+        {
+            return Path.GetFullPath(configured);
+        }
+
+        var contentRoot = Path.GetFullPath(env.ContentRootPath);
+        var current = new DirectoryInfo(contentRoot);
+        var parent = current.Parent;
+        var grandparent = parent?.Parent;
+        if (string.Equals(current.Name, "WeeklyReports.Intranet", StringComparison.OrdinalIgnoreCase)
+            && string.Equals(parent?.Name, "app", StringComparison.OrdinalIgnoreCase)
+            && grandparent is not null)
+        {
+            return grandparent.FullName;
+        }
+
+        return contentRoot;
+    }
+
     private string ReportDir(string id)
     {
         if (!Regex.IsMatch(id, "^[0-9]{4}-[0-9]{2}-[0-9]{2}_to_[0-9]{4}-[0-9]{2}-[0-9]{2}$"))
@@ -618,6 +711,20 @@ record DraftRequest(DateOnly WeekStart, DateOnly WeekEnd, string Title, Publicat
 record AgentRunRequest(DateOnly? WeekStart, DateOnly? WeekEnd, string? Title, bool AutoPublishIfValid, ReportContent Content);
 record WatchdogCheckRequest(DateOnly? Today, DateOnly? WeekStart, DateOnly? WeekEnd);
 record WatchdogCheckResponse(DateOnly WeekStart, DateOnly WeekEnd, bool Published, bool ShouldRunAgent, string? ReportId, string Message);
+record StorageHealth(bool StorageOk, string? Error);
+record AppDiagnostics(
+    DateTimeOffset CheckedAt,
+    string ContentRoot,
+    string RepoRoot,
+    string ReportsRoot,
+    string? ReportsRootError,
+    StorageHealth Storage,
+    bool AgentKeyConfigured,
+    int ReportCount,
+    Dictionary<string, int> ReportsByStatus,
+    IReadOnlyList<ReportSummary> LatestReports,
+    int FilesUnderReportsRoot,
+    IReadOnlyList<string> SystemAuditTail);
 record AppUser(string Username, string? DisplayName, string PasswordHash, List<string> Roles);
 record ReportSummary(string Id, string Title, DateOnly WeekStart, DateOnly WeekEnd, ReportStatus Status, PublicationMode PublicationMode, DateTimeOffset UpdatedAt);
 record ReportMeta(string Id, string Title, DateOnly WeekStart, DateOnly WeekEnd, ReportStatus Status, PublicationMode PublicationMode, string CreatedBy, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt, string DocxPath);

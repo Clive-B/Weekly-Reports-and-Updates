@@ -30,6 +30,8 @@ reports/
 
 The application validates the storage path so `Reports:Root` cannot escape the repository.
 
+In the source tree, the app resolves the repository root from `app/WeeklyReports.Intranet` back to the workspace root. In a published/container deployment, the application content root is treated as the repository root, so `Reports__Root=reports` resolves to `/app/reports`. Set `Reports__RepoRoot` only when production uses a different application root.
+
 ## Roles
 
 - `Editor`: uploads Word reports, edits drafts, submits for review.
@@ -71,6 +73,24 @@ The server validates before auto-publication:
 - Assumption exposure notes must be present.
 
 If validation fails, the report remains pending for review.
+
+## Production Diagnostics
+
+Admins can inspect the effective production storage configuration at:
+
+```text
+GET /api/admin/diagnostics
+```
+
+Use this when the public page says no report is available or the editor inventory says no repo-stored reports exist. The response shows the effective content root, repo root, reports root, report counts by status, whether an agent key is configured, and the latest system-audit lines.
+
+For Docker deployments, the expected report store is usually:
+
+```text
+/app/reports
+```
+
+If diagnostics reports `/reports` instead, deploy the current path-resolution build or set `Reports__RepoRoot=/app`.
 
 ## Authentication Setup
 

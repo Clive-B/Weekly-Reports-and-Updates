@@ -24,6 +24,8 @@ Reports__Root=reports
 Agent__ApiKey=<strong-random-agent-secret>
 ```
 
+`Reports__Root=reports` resolves under the application content root in a published/container layout, so the expected production path is `/app/reports`. If a deployment uses a different application root, set `Reports__RepoRoot` to that root explicitly.
+
 Do not bake secrets into the image. Inject them through Docker secrets, the orchestrator secret store, or protected environment variables.
 
 ## Persistent Repo Storage
@@ -147,35 +149,65 @@ shouldRunAgent=true|false
 
 The watchdog must only generate a report when `shouldRunAgent` is `true`.
 
-The repo includes a Linux runner skeleton:
+The repository includes the Linux watchdog and report generator:
 
 ```text
 tools/weekly-agent-watchdog.sh
+tools/nca-weekly-agent/generate-weekly-report.sh
+tools/nca-weekly-agent/weekly-report-content.schema.json
 ```
 
-It requires `curl` and `jq` in the scheduler environment.
+The scheduler environment requires `bash`, GNU `date`, `curl`, and `jq`.
+
+Copy the generator directory to the path expected by the scheduler configuration. For the current `/nca-weekly-agent/generate-weekly-report.sh` path:
+
+```dockerfile
+COPY tools/nca-weekly-agent/ /nca-weekly-agent/
+COPY tools/weekly-agent-watchdog.sh /usr/local/bin/weekly-agent-watchdog.sh
+RUN chmod 0555 /nca-weekly-agent/generate-weekly-report.sh \
+    /nca-weekly-agent/test-generate-weekly-report.sh \
+    /usr/local/bin/weekly-agent-watchdog.sh
+```
+
+If the scheduler is a separate container, add these lines to that scheduler image rather than the ASP.NET application image.
 
 Example scheduler environment:
 
 ```text
 APP_BASE_URL=http://localhost:8080
 AGENT_API_KEY=<same value as Agent__ApiKey>
-AGENT_GENERATE_COMMAND=/opt/nca-weekly-agent/generate-weekly-report.sh
+AGENT_GENERATE_COMMAND=/nca-weekly-agent/generate-weekly-report.sh
+OPENAI_API_KEY=<OpenAI platform API key>
+OPENAI_MODEL=gpt-5.6-terra
+AGENT_AUTO_PUBLISH=false
 ```
+
+`OPENAI_MODEL` is optional and overrides the generator default. Keep `AGENT_AUTO_PUBLISH=false` for initial testing; change it to `true` only after the generated report has been reviewed and the production pipeline has been verified.
 
 Example cron entries:
 
 ```cron
 TZ=Africa/Accra
 
-# Monday primary generation.
-0 8 * * 1 /opt/nca-weekly-agent/generate-weekly-report.sh | curl -fsS -H "X-Agent-Key: $AGENT_API_KEY" -H "Content-Type: application/json" -X POST "$APP_BASE_URL/api/agent/run" -d @-
-
-# Tuesday-Friday fallback check.
-0 8 * * 2-5 /app/tools/weekly-agent-watchdog.sh
+# Monday primary generation plus Tuesday-Friday fallback checks.
+0 8 * * 1-5 /usr/local/bin/weekly-agent-watchdog.sh
 ```
 
-If the scheduler runs in a separate container, mount or copy `tools/weekly-agent-watchdog.sh` into that scheduler image and provide the same environment variables through Docker secrets or a protected env file.
+The watchdog first calls `/api/agent/watchdog-check`, so it exits without invoking the paid generator when a published report already exists. Provide the environment variables through Docker secrets or a protected env file, never in the image.
+
+Before connecting to the live OpenAI API, run the offline generator test in the Linux scheduler image:
+
+```bash
+/nca-weekly-agent/test-generate-weekly-report.sh
+```
+
+Then run one controlled end-to-end test with `AGENT_AUTO_PUBLISH=false`:
+
+```bash
+/usr/local/bin/weekly-agent-watchdog.sh
+```
+
+The first command does not use an API key or network connection. The second requires the configured OpenAI and agent keys and should create a report pending human review.
 
 ## Network Access
 
@@ -229,6 +261,8 @@ If the agent runs inside or beside the container:
 
 ```text
 OPENAI_API_KEY=<OpenAI platform API key>
+OPENAI_MODEL=gpt-5.6-terra
+AGENT_AUTO_PUBLISH=false
 ```
 
 or the approved equivalent for the selected AI provider.
@@ -323,17 +357,63 @@ Expected unauthenticated response:
 }
 ```
 
-A stronger future health endpoint can be added for:
+Use the storage health endpoint after deployment:
 
-- storage write checks,
+```text
+GET /api/health
+```
+
+Expected healthy response:
+
+```json
+{
+  "storageOk": true,
+  "error": null
+}
+```
+
+This endpoint checks whether the configured reports folder can be created and written. If it returns `storageOk: false`, fix the `/app/reports` mount or container permissions before testing agent publication.
+
+After signing in as an admin, use the protected diagnostics endpoint for deeper storage and agent-intake triage:
+
+```text
+GET /api/admin/diagnostics
+```
+
+Key fields to verify:
+
+```text
+contentRoot
+repoRoot
+reportsRoot
+storage.storageOk
+agentKeyConfigured
+reportCount
+reportsByStatus
+filesUnderReportsRoot
+systemAuditTail
+```
+
+If `contentRoot` is `/app` but `reportsRoot` is `/reports`, the deployed build is still using the older path resolution or `Reports__RepoRoot` is not set as expected. Redeploy the current build or set `Reports__RepoRoot=/app` so `Reports__Root=reports` resolves to `/app/reports`.
+
+If `agentKeyConfigured` is `false`, configure `Agent__ApiKey` before testing `/api/agent/watchdog-check` or `/api/agent/run`.
+
+If `storage.storageOk` is `true` but `reportCount` is `0`, the web app can write to its report store but no draft or published report has reached that store. Check the scheduler/cron job and the `/api/agent/run` response.
+
+If `systemAuditTail` contains `watchdog_triggered_agent` but `reportCount` remains `0`, the watchdog check reached the app but the generator did not successfully submit to `/api/agent/run`.
+
+A stronger future health endpoint can add checks for:
+
 - agent key presence,
 - AI provider connectivity,
-- report volume availability.
+- report volume availability beyond the local write probe.
 
 ## Minimum Container Checklist
 
 - .NET 8 ASP.NET Core runtime installed.
-- Scheduler image or host cron has `curl` and `jq` if using `tools/weekly-agent-watchdog.sh`.
+- Scheduler image or host cron has `bash`, GNU `date`, `curl`, and `jq`.
+- `tools/nca-weekly-agent/` is copied to `/nca-weekly-agent/` in the scheduler environment.
+- `/nca-weekly-agent/test-generate-weekly-report.sh` passes before live API testing.
 - App files copied to `/app`.
 - `/app/reports` mounted as a persistent writable volume.
 - `ASPNETCORE_URLS=http://+:8080`.

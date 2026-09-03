@@ -137,10 +137,11 @@ Example response:
 
 The watchdog must only call the generator when `shouldRunAgent` is `true`.
 
-The repo includes a Linux runner skeleton:
+The repository includes both parts of the Linux runner:
 
 ```text
 tools/weekly-agent-watchdog.sh
+tools/nca-weekly-agent/generate-weekly-report.sh
 ```
 
 It expects:
@@ -152,3 +153,15 @@ AGENT_GENERATE_COMMAND
 ```
 
 `AGENT_GENERATE_COMMAND` must write the full `/api/agent/run` JSON payload to stdout.
+
+The included generator uses the OpenAI Responses API with web search and Structured Outputs. It requires `bash`, GNU `date`, `curl`, and `jq`, plus a runtime-only `OPENAI_API_KEY`. Its default model can be overridden with `OPENAI_MODEL`.
+
+The generator calculates the previous Monday-Friday window when `WEEK_START` and `WEEK_END` are absent. The watchdog supplies those values explicitly during a fallback run. It writes diagnostics to stderr and the API payload only to stdout so the watchdog can safely submit it.
+
+Unattended publication is opt-in. Set:
+
+```text
+AGENT_AUTO_PUBLISH=true
+```
+
+only after production validation. Without it, generated reports enter the human review

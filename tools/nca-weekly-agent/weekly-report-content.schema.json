@@ -1,0 +1,87 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "reportingWeek": { "type": "string" },
+    "preparedBy": { "type": "string" },
+    "executiveSnapshot": { "type": "string", "minLength": 1 },
+    "priorityTrends": {
+      "type": "array",
+      "minItems": 3,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "title": { "type": "string", "minLength": 1 },
+          "whatHappened": { "type": "string", "minLength": 1 },
+          "whyItMatters": { "type": "string", "minLength": 1 },
+          "signal": { "type": "string", "minLength": 1 },
+          "riskOpportunity": { "type": "string", "minLength": 1 }
+        },
+        "required": ["title", "whatHappened", "whyItMatters", "signal", "riskOpportunity"]
+      }
+    },
+    "horizon": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "title": { "type": "string", "minLength": 1 },
+          "body": { "type": "string", "minLength": 1 }
+        },
+        "required": ["title", "body"]
+      }
+    },
+    "implications": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "title": { "type": "string", "minLength": 1 },
+          "body": { "type": "string", "minLength": 1 }
+        },
+        "required": ["title", "body"]
+      }
+    },
+    "attentionSignals": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "assumptions": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "references": {
+      "type": "array",
+      "minItems": 5,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "title": { "type": "string", "minLength": 1 },
+          "url": { "type": "string", "minLength": 1 },
+          "publisher": { "type": "string" },
+          "publishedAt": { "type": "string" }
+        },
+        "required": ["title", "url", "publisher", "publishedAt"]
+      }
+    }
+  },
+  "required": [
+    "reportingWeek",
+    "preparedBy",
+    "executiveSnapshot",
+    "priorityTrends",
+    "horizon",
+    "implications",
+    "attentionSignals",
+    "assumptions",
+    "references"
+  ]
+}

@@ -4,6 +4,38 @@ let selected = null;
 
 const $ = id => document.getElementById(id);
 
+const reportStatusNames = ["Draft", "PendingReview", "Published", "Rejected"];
+const publicationModeNames = ["Uploaded", "AgentGenerated", "AgentGeneratedNeedsReview", "HumanApproved", "AutoPublished"];
+
+function enumName(value, names) {
+  if (typeof value === "number") return names[value] || String(value);
+  if (typeof value === "string" && /^\d+$/.test(value)) return names[Number(value)] || value;
+  return value || "";
+}
+
+function reportStatusName(value) {
+  return enumName(value, reportStatusNames);
+}
+
+function publicationModeName(value) {
+  return enumName(value, publicationModeNames);
+}
+
+function reportStatusLabel(value) {
+  return {
+    PendingReview: "Pending review"
+  }[reportStatusName(value)] || reportStatusName(value);
+}
+
+function publicationModeLabel(value) {
+  return {
+    AgentGenerated: "Agent generated",
+    AgentGeneratedNeedsReview: "Agent generated - needs review",
+    HumanApproved: "Human approved",
+    AutoPublished: "Auto-published"
+  }[publicationModeName(value)] || publicationModeName(value);
+}
+
 async function api(path, options = {}) {
   const response = await fetch(path, {
     credentials: "same-origin",
@@ -13,7 +45,9 @@ async function api(path, options = {}) {
 
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(text || response.statusText);
+    const error = new Error(text || response.statusText);
+    error.status = response.status;
+    throw error;
   }
 
   const contentType = response.headers.get("content-type") || "";
@@ -87,9 +121,13 @@ async function loadReports() {
   try {
     selected = await api("/api/reports/current");
     renderSelected();
-  } catch {
+  } catch (error) {
     selected = null;
-    renderNoPublishedReport();
+    if (error.status === 404) {
+      renderNoPublishedReport();
+    } else {
+      renderReportLoadError();
+    }
   }
 }
 
@@ -109,6 +147,22 @@ function renderNoPublishedReport() {
   renderReferences([]);
 }
 
+function renderReportLoadError() {
+  $("reportTitle").textContent = "Publication service unavailable";
+  $("reportMeta").textContent = "The public report store could not be reached. Check the production reports volume and application logs.";
+  $("previewWeek").textContent = "Service check required";
+  $("previewPreparedBy").textContent = "Innovation Unit";
+  $("previewStatus").textContent = "Storage/API error";
+  $("previewMode").textContent = "Public read-only";
+  $("snapshotText").textContent = "The latest approved weekly report cannot be loaded because the report service returned an error.";
+  renderTrends([]);
+  renderMiniCards("horizonContainer", []);
+  renderMiniCards("implicationsContainer", []);
+  renderListCards("attentionContainer", []);
+  renderListCards("notesContainer", []);
+  renderReferences([]);
+}
+
 function renderReportList() {
   const list = $("reportList");
   list.innerHTML = "";
@@ -120,7 +174,7 @@ function renderReportList() {
   reports.forEach(report => {
     const button = document.createElement("button");
     button.className = `report-item ${selected?.meta?.id === report.id ? "active" : ""}`;
-    button.innerHTML = `<strong>${escapeHtml(report.title)}</strong><span>${report.weekStart} to ${report.weekEnd} · ${report.status} · ${report.publicationMode}</span>`;
+    button.innerHTML = `<strong>${escapeHtml(report.title)}</strong><span>${report.weekStart} to ${report.weekEnd} · ${reportStatusLabel(report.status)} · ${publicationModeLabel(report.publicationMode)}</span>`;
     button.addEventListener("click", () => selectReport(report.id));
     list.appendChild(button);
   });
@@ -136,11 +190,12 @@ function renderSelected() {
   if (!selected) return;
   const { meta, content, approval, validationIssues, audit } = selected;
   $("reportTitle").textContent = meta.title;
-  $("reportMeta").textContent = `${meta.weekStart} to ${meta.weekEnd} · ${meta.status} · ${meta.publicationMode}${meta.docxPath ? ` · ${meta.docxPath}` : ""}`;
+  $("reportMeta").textContent = `${meta.weekStart} to ${meta.weekEnd} · ${reportStatusLabel(meta.status)} · ${publicationModeLabel(meta.publicationMode)}${meta.docxPath ? ` · ${meta.docxPath}` : ""}`;
 
-  $("submitReviewBtn").classList.toggle("hidden", !(hasRole("Editor") || hasRole("Admin")) || meta.status !== "Draft");
-  $("approveBtn").classList.toggle("hidden", !(hasRole("Reviewer") || hasRole("Admin")) || meta.status !== "PendingReview");
-  $("rejectBtn").classList.toggle("hidden", !(hasRole("Reviewer") || hasRole("Admin")) || meta.status !== "PendingReview");
+  const status = reportStatusName(meta.status);
+  $("submitReviewBtn").classList.toggle("hidden", !(hasRole("Editor") || hasRole("Admin")) || status !== "Draft");
+  $("approveBtn").classList.toggle("hidden", !(hasRole("Reviewer") || hasRole("Admin")) || status !== "PendingReview");
+  $("rejectBtn").classList.toggle("hidden", !(hasRole("Reviewer") || hasRole("Admin")) || status !== "PendingReview");
 
   $("contentWeek").value = content.reportingWeek || `${meta.weekStart} to ${meta.weekEnd}`;
   $("preparedBy").value = content.preparedBy || "Innovation Unit";
@@ -165,8 +220,8 @@ function renderSelected() {
 function renderPreview(meta, content) {
   $("previewWeek").textContent = content.reportingWeek || `${meta.weekStart} to ${meta.weekEnd}`;
   $("previewPreparedBy").textContent = content.preparedBy || "Innovation Unit";
-  $("previewStatus").textContent = meta.status || "";
-  $("previewMode").textContent = meta.publicationMode || "";
+  $("previewStatus").textContent = reportStatusLabel(meta.status);
+  $("previewMode").textContent = publicationModeLabel(meta.publicationMode);
   $("snapshotText").textContent = content.executiveSnapshot || "Select a report or add content to preview the executive snapshot.";
 
   renderTrends(content.priorityTrends || []);
