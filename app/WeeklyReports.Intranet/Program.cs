@@ -277,6 +277,34 @@ app.MapPut("/api/reports/{id}/content", [Authorize(Policy = "Editor")] (
     return Results.Ok(store.Get(id));
 });
 
+app.MapPut("/api/reports/{id}/source-links", [Authorize(Policy = "Admin")] (
+    string id,
+    [FromBody] ImplicationSourceLinksRequest request,
+    ClaimsPrincipal user,
+    ReportStore store) =>
+{
+    var report = store.Get(id);
+    if (report is null) return Results.NotFound();
+    if (request.Links.Count != report.Content.Implications.Count)
+        return Results.BadRequest("Provide exactly one source link for every implication card.");
+
+    var implications = report.Content.Implications
+        .Select((item, index) => item with
+        {
+            SourceSection = request.Links[index].SourceSection,
+            SourceItemIndex = request.Links[index].SourceItemIndex
+        })
+        .ToList();
+    var content = report.Content with { Implications = implications };
+    if (content.Implications.Any(item => !HasValidImplicationSource(item, content)))
+        return Results.BadRequest("Every source link must point to an existing item in Sections 1, 2, or 3.");
+
+    store.SaveContent(id, content);
+    store.WriteDocx(id, content);
+    store.AppendAudit(id, "source_links_updated", user.Identity?.Name ?? "unknown", "Administrator updated implication-card navigation links; report text and approval were preserved.");
+    return Results.Ok(store.Get(id));
+});
+
 app.MapPost("/api/reports/{id}/submit-review", [Authorize(Policy = "Editor")] (
     string id,
     ClaimsPrincipal user,
@@ -925,6 +953,8 @@ record ProviderKeyRequest(string? ApiKey);
 record ProviderKeyStatus(bool Configured, DateTimeOffset? UpdatedAt);
 record ProviderKeyMetadata(DateTimeOffset UpdatedAt);
 record RejectRequest(string Reason);
+record ImplicationSourceLinksRequest(List<ImplicationSourceLink> Links);
+record ImplicationSourceLink(string SourceSection, int SourceItemIndex);
 record DraftRequest(DateOnly WeekStart, DateOnly WeekEnd, string Title, PublicationMode Mode, ReportContent Content);
 record AgentRunRequest(DateOnly? WeekStart, DateOnly? WeekEnd, string? Title, bool AutoPublishIfValid, ReportContent Content);
 record WatchdogCheckRequest(DateOnly? Today, DateOnly? WeekStart, DateOnly? WeekEnd);
