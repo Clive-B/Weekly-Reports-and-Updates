@@ -33,7 +33,13 @@ The agent output must map to this JSON shape:
     "implications": [
       {
         "title": "",
-        "body": ""
+        "body": "",
+        "recommendations": [
+          {
+            "text": "",
+            "relatedTrendIndex": 1
+          }
+        ]
       }
     ],
     "attentionSignals": [],
@@ -62,6 +68,8 @@ The agent must prioritize:
 - Ghana, African, ECOWAS, AU, and ITU-relevant signals.
 
 The agent must not include a trend unless it has a traceable source URL. If source quality is weak, place the caveat in `assumptions`.
+
+Every implication must include at least one actionable recommendation. `relatedTrendIndex` is one-based and must point to the priority trend that supports the recommendation. The application renders that recommendation as a link back to the related item.
 
 ## Automation Boundary
 

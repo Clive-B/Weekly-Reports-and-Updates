@@ -368,11 +368,18 @@ button {
 .trend-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 18px; }
 .field .label { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.45px; color: var(--muted); font-weight: 700; margin-bottom: 5px; }
 .field .text { color: var(--ink); font-size: 0.96rem; white-space: pre-line; }
+.field-help { margin: 4px 0 7px; color: var(--muted); font-size: 0.8rem; }
 .horizon-grid, .implications-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
 .attention-grid, .notes-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; align-items: stretch; }
 .mini-card { border: 1px solid var(--line); border-radius: 18px; padding: 16px; background: color-mix(in srgb, var(--card) 94%, #fbfdff 6%); }
 .mini-card h4 { margin: 0 0 8px; color: var(--primary); font-size: 1rem; }
 .mini-card p { margin: 0 0 10px; color: var(--ink); font-size: 0.95rem; white-space: pre-line; }
+.recommendation-label { margin: 14px 0 7px; color: var(--muted); font-size: 0.78rem; font-weight: 700; letter-spacing: 0.45px; text-transform: uppercase; }
+.recommendation-list { margin: 0; padding-left: 20px; }
+.recommendation-list li { margin: 0 0 8px; }
+.recommendation-list a, #referencesList a { color: var(--primary); font-weight: 650; text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; }
+.recommendation-list a:hover, .recommendation-list a:focus-visible, #referencesList a:hover, #referencesList a:focus-visible { color: var(--accent); }
+.trend:target { border-color: var(--accent); box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 18%, transparent); scroll-margin-top: 120px; }
 .attention-card ul, .notes-grid ul { margin: 0; padding-left: 18px; }
 .attention-card li, .notes-grid li, #referencesList li { margin: 0 0 8px; color: var(--ink); }
 .list-item-card { display: flex; gap: 12px; min-width: 0; height: 100%; }

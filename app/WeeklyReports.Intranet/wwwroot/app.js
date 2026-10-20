@@ -276,7 +276,7 @@ function renderPreview(meta, content) {
 
   renderTrends(content.priorityTrends || []);
   renderMiniCards("horizonContainer", content.horizon || []);
-  renderMiniCards("implicationsContainer", content.implications || []);
+  renderImplications(content.implications || [], content.priorityTrends || []);
   renderListCards("attentionContainer", content.attentionSignals || []);
   renderListCards("notesContainer", content.assumptions || []);
   renderReferences(content.references || []);
@@ -295,6 +295,7 @@ function renderTrends(trends) {
   trends.forEach((trend, index) => {
     const card = document.createElement("article");
     card.className = "trend";
+    card.id = `trend-${index + 1}`;
     card.innerHTML = `
       <div class="trend-head">
         <h3>${escapeHtml(trend.title || `Trend ${index + 1}`)}</h3>
@@ -307,6 +308,57 @@ function renderTrends(trends) {
         <div class="field"><div class="label">Risk / Opportunity Assessment</div><div class="text">${escapeHtml(trend.riskOpportunity || "")}</div></div>
       </div>
     `;
+    container.appendChild(card);
+  });
+}
+
+function renderImplications(implications, trends) {
+  const container = $("implicationsContainer");
+  container.innerHTML = "";
+  if (!implications.length) {
+    container.innerHTML = `<div class="mini-card"><p>No entries have been added yet.</p></div>`;
+    return;
+  }
+
+  implications.forEach(item => {
+    const card = document.createElement("article");
+    card.className = "mini-card implication-card";
+
+    const heading = document.createElement("h4");
+    heading.textContent = item.title || "Untitled";
+    card.appendChild(heading);
+
+    const body = document.createElement("p");
+    body.textContent = item.body || "";
+    card.appendChild(body);
+
+    const recommendations = Array.isArray(item.recommendations) ? item.recommendations : [];
+    if (recommendations.length) {
+      const label = document.createElement("div");
+      label.className = "recommendation-label";
+      label.textContent = "Recommendations";
+      card.appendChild(label);
+
+      const list = document.createElement("ul");
+      list.className = "recommendation-list";
+      recommendations.forEach(recommendation => {
+        const li = document.createElement("li");
+        const trendIndex = Number(recommendation.relatedTrendIndex);
+        const validTarget = Number.isInteger(trendIndex) && trendIndex >= 1 && trendIndex <= trends.length;
+        if (validTarget) {
+          const link = document.createElement("a");
+          link.href = `#trend-${trendIndex}`;
+          link.textContent = recommendation.text || `View related Trend ${trendIndex}`;
+          link.title = `Go to Trend ${trendIndex}: ${trends[trendIndex - 1]?.title || "Related trend"}`;
+          li.appendChild(link);
+        } else {
+          li.textContent = recommendation.text || "Recommendation";
+        }
+        list.appendChild(li);
+      });
+      card.appendChild(list);
+    }
+
     container.appendChild(card);
   });
 }
@@ -361,10 +413,29 @@ function renderReferences(references) {
   references.forEach(reference => {
     const li = document.createElement("li");
     const title = reference.title || reference.url || "Reference";
-    const suffix = reference.url ? ` - ${reference.url}` : "";
-    li.textContent = `${title}${suffix}`;
+    if (isSafeHttpUrl(reference.url)) {
+      const link = document.createElement("a");
+      link.href = reference.url;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      link.textContent = title;
+      link.title = `Open source: ${reference.url}`;
+      li.appendChild(link);
+      if (reference.publisher) li.append(` — ${reference.publisher}`);
+    } else {
+      li.textContent = title;
+    }
     list.appendChild(li);
   });
+}
+
+function isSafeHttpUrl(value) {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" || url.protocol === "http:";
+  } catch {
+    return false;
+  }
 }
 
 async function uploadWord() {

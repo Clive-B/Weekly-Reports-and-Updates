@@ -77,7 +77,7 @@ Use web search and include only developments that occurred or were officially an
 
 Every claimed trend must be supported by a reference URL that you actually found. Use at least five distinct HTTPS source URLs. Do not invent URLs, titles, dates, quotations, statistics, or events. Clearly expose weak, conflicting, or incomplete evidence in assumptions. If no material uncertainty exists, include an assumption note stating that the report is limited to publicly available sources reviewed for the reporting window.
 
-Write for an executive and regulatory audience. Keep the executive snapshot concise. Provide at least three priority trends. Separate what happened from why it matters, the signal, and the risk or opportunity. Return only content that conforms to the supplied JSON schema.
+Write for an executive and regulatory audience. Keep the executive snapshot concise. Provide at least three priority trends. Separate what happened from why it matters, the signal, and the risk or opportunity. For every regulatory or strategic implication, provide at least one actionable recommendation and set relatedTrendIndex to the one-based position of the priority trend that supports it. Return only content that conforms to the supplied JSON schema.
 PROMPT
 
 USER_PROMPT="Prepare the report for ${WEEK_START} through ${WEEK_END} (${REPORTING_WEEK}). Set preparedBy to Innovation & Policy and reportingWeek to ${REPORTING_WEEK}."
@@ -171,10 +171,13 @@ CONTENT_JSON="$({
 
 CONTENT_VALID=false
 if jq -e '
+  (.priorityTrends | length) as $trendCount
+  |
   (.executiveSnapshot | type == "string" and length > 0)
   and (.priorityTrends | type == "array" and length >= 3)
   and (.horizon | type == "array" and length > 0)
   and (.implications | type == "array" and length > 0)
+  and ([.implications[] | (.recommendations | type == "array" and length > 0) and ([.recommendations[] | (.text | type == "string" and length > 0) and (.relatedTrendIndex | type == "number" and floor == . and . >= 1 and . <= $trendCount)] | all)] | all)
   and (.attentionSignals | type == "array" and length > 0)
   and (.assumptions | type == "array" and length > 0)
   and (.references | type == "array" and length >= 5)

@@ -468,7 +468,13 @@ static List<string> ValidateAgentContent(ReportContent content)
     if (string.IsNullOrWhiteSpace(content.ExecutiveSnapshot)) issues.Add("Executive snapshot is missing.");
     if (content.PriorityTrends.Count < 3) issues.Add("At least three priority trends are expected.");
     if (content.References.Count < 5) issues.Add("At least five references are expected before unattended auto-publication.");
-    if (content.References.Any(r => string.IsNullOrWhiteSpace(r.Url))) issues.Add("Every reference must include a URL.");
+    if (content.References.Any(r => !Uri.TryCreate(r.Url, UriKind.Absolute, out var uri) || (uri.Scheme != Uri.UriSchemeHttps && uri.Scheme != Uri.UriSchemeHttp)))
+        issues.Add("Every reference must include a valid HTTP or HTTPS URL.");
+    if (content.Implications.Any(i => i.Recommendations.Count == 0)) issues.Add("Every regulatory or strategic implication must include at least one recommendation.");
+    if (content.Implications.SelectMany(i => i.Recommendations).Any(r => string.IsNullOrWhiteSpace(r.Text)))
+        issues.Add("Every recommendation must include text.");
+    if (content.Implications.SelectMany(i => i.Recommendations).Any(r => r.RelatedTrendIndex < 1 || r.RelatedTrendIndex > content.PriorityTrends.Count))
+        issues.Add("Every recommendation must link to an existing priority trend.");
     if (content.Assumptions.Count == 0) issues.Add("Assumption exposure notes are missing.");
     return issues;
 }
@@ -640,7 +646,7 @@ sealed class ReportStore(IWebHostEnvironment env, IConfiguration config)
         using var archive = new ZipArchive(output, ZipArchiveMode.Create);
         WriteZipEntry(archive, "[Content_Types].xml", ContentTypesXml());
         WriteZipEntry(archive, "_rels/.rels", RelationshipsXml());
-        WriteZipEntry(archive, "word/_rels/document.xml.rels", WordRelationshipsXml());
+        WriteZipEntry(archive, "word/_rels/document.xml.rels", WordRelationshipsXml(content));
         WriteZipEntry(archive, "docProps/core.xml", CorePropertiesXml(content.PreparedBy));
         WriteZipEntry(archive, "word/document.xml", DocumentXml(content));
         Touch(id);
@@ -771,13 +777,23 @@ sealed class ReportStore(IWebHostEnvironment env, IConfiguration config)
 
     private static string RelationshipsXml() => """<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/></Relationships>""";
 
-    private static string WordRelationshipsXml() => """<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>""";
+    private static string WordRelationshipsXml(ReportContent content)
+    {
+        var links = content.References
+            .Select((reference, index) => (reference, index))
+            .Where(item => IsHttpUrl(item.reference.Url))
+            .Select(item => $"<Relationship Id=\"rIdRef{item.index + 1}\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink\" Target=\"{Xml(item.reference.Url)}\" TargetMode=\"External\"/>");
+        return $"<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">{string.Join("", links)}</Relationships>";
+    }
 
     private static string CorePropertiesXml(string preparedBy) => $"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?><cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><dc:creator>{Xml(preparedBy)}</dc:creator><cp:lastModifiedBy>{Xml(preparedBy)}</cp:lastModifiedBy><dcterms:created xsi:type="dcterms:W3CDTF">{DateTimeOffset.UtcNow:O}</dcterms:created><dcterms:modified xsi:type="dcterms:W3CDTF">{DateTimeOffset.UtcNow:O}</dcterms:modified></cp:coreProperties>""";
 
     private static string DocumentXml(ReportContent content)
     {
-        var paragraphs = new List<string>
+        var body = new StringBuilder();
+        void AddParagraph(string text) => body.Append($"<w:p><w:r><w:t>{Xml(text)}</w:t></w:r></w:p>");
+
+        var openingParagraphs = new[]
         {
             "NATIONAL COMMUNICATIONS AUTHORITY",
             "Innovation & Policy",
@@ -789,23 +805,47 @@ sealed class ReportStore(IWebHostEnvironment env, IConfiguration config)
             content.ExecutiveSnapshot,
             "2. Priority Trends to Watch"
         };
-        paragraphs.AddRange(content.PriorityTrends.Select(t => $"{t.Title}: {t.WhatHappened} Why It Matters: {t.WhyItMatters} Signal: {t.Signal} Risk/Opportunity: {t.RiskOpportunity}"));
-        paragraphs.Add("3. Technologies & Developments on the Horizon");
-        paragraphs.AddRange(content.Horizon.Select(i => $"{i.Title}: {i.Body}"));
-        paragraphs.Add("4. Regulatory & Strategic Implications");
-        paragraphs.AddRange(content.Implications.Select(i => $"{i.Title}: {i.Body}"));
-        paragraphs.Add("5. Executive Attention Signals");
-        paragraphs.AddRange(content.AttentionSignals);
-        paragraphs.Add("6. Assumption Exposure & Analytical Notes");
-        paragraphs.AddRange(content.Assumptions);
-        paragraphs.Add("7. References");
-        paragraphs.AddRange(content.References.Select(r => $"{r.Title} - {r.Url}"));
+        foreach (var paragraph in openingParagraphs) AddParagraph(paragraph);
 
-        var body = string.Join("", paragraphs.Select(p => $"<w:p><w:r><w:t>{Xml(p)}</w:t></w:r></w:p>"));
-        return $"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>{body}<w:sectPr/></w:body></w:document>""";
+        foreach (var (trend, index) in content.PriorityTrends.Select((value, index) => (value, index)))
+        {
+            var text = $"{trend.Title}: {trend.WhatHappened} Why It Matters: {trend.WhyItMatters} Signal: {trend.Signal} Risk/Opportunity: {trend.RiskOpportunity}";
+            body.Append($"<w:p><w:bookmarkStart w:id=\"{index + 1}\" w:name=\"trend_{index + 1}\"/><w:r><w:t>{Xml(text)}</w:t></w:r><w:bookmarkEnd w:id=\"{index + 1}\"/></w:p>");
+        }
+
+        AddParagraph("3. Technologies & Developments on the Horizon");
+        foreach (var item in content.Horizon) AddParagraph($"{item.Title}: {item.Body}");
+        AddParagraph("4. Regulatory & Strategic Implications");
+        foreach (var implication in content.Implications)
+        {
+            AddParagraph($"{implication.Title}: {implication.Body}");
+            foreach (var recommendation in implication.Recommendations)
+            {
+                if (recommendation.RelatedTrendIndex >= 1 && recommendation.RelatedTrendIndex <= content.PriorityTrends.Count)
+                    body.Append($"<w:p><w:hyperlink w:anchor=\"trend_{recommendation.RelatedTrendIndex}\" w:history=\"1\"><w:r><w:rPr><w:color w:val=\"0563C1\"/><w:u w:val=\"single\"/></w:rPr><w:t>Recommendation: {Xml(recommendation.Text)}</w:t></w:r></w:hyperlink></w:p>");
+                else
+                    AddParagraph($"Recommendation: {recommendation.Text}");
+            }
+        }
+        AddParagraph("5. Executive Attention Signals");
+        foreach (var signal in content.AttentionSignals) AddParagraph(signal);
+        AddParagraph("6. Assumption Exposure & Analytical Notes");
+        foreach (var assumption in content.Assumptions) AddParagraph(assumption);
+        AddParagraph("7. References");
+        foreach (var (reference, index) in content.References.Select((value, index) => (value, index)))
+        {
+            if (IsHttpUrl(reference.Url))
+                body.Append($"<w:p><w:hyperlink r:id=\"rIdRef{index + 1}\" w:history=\"1\"><w:r><w:rPr><w:color w:val=\"0563C1\"/><w:u w:val=\"single\"/></w:rPr><w:t>{Xml(reference.Title)}</w:t></w:r></w:hyperlink></w:p>");
+            else
+                AddParagraph(reference.Title);
+        }
+
+        return $"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><w:body>{body}<w:sectPr/></w:body></w:document>""";
     }
 
     private static string Xml(string? value) => HtmlEncoder.Default.Encode(value ?? "");
+    private static bool IsHttpUrl(string? value) => Uri.TryCreate(value, UriKind.Absolute, out var uri)
+        && (uri.Scheme == Uri.UriSchemeHttps || uri.Scheme == Uri.UriSchemeHttp);
 }
 
 sealed class PasswordVerifier
@@ -909,13 +949,20 @@ record ReportContent
     public string ExecutiveSnapshot { get; init; } = "";
     public List<TrendItem> PriorityTrends { get; init; } = [];
     public List<SectionItem> Horizon { get; init; } = [];
-    public List<SectionItem> Implications { get; init; } = [];
+    public List<ImplicationItem> Implications { get; init; } = [];
     public List<string> AttentionSignals { get; init; } = [];
     public List<string> Assumptions { get; init; } = [];
     public List<ReferenceItem> References { get; init; } = [];
 }
 record TrendItem(string Title, string WhatHappened, string WhyItMatters, string Signal, string RiskOpportunity);
 record SectionItem(string Title, string Body);
+record ImplicationItem
+{
+    public string Title { get; init; } = "";
+    public string Body { get; init; } = "";
+    public List<RecommendationItem> Recommendations { get; init; } = [];
+}
+record RecommendationItem(string Text, int RelatedTrendIndex);
 record ReferenceItem(string Title, string Url, string? Publisher = null, string? PublishedAt = null);
 
 enum ReportStatus { Draft, PendingReview, Published, Rejected }
