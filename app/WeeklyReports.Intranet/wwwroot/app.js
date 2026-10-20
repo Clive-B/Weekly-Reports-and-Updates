@@ -322,13 +322,8 @@ function renderImplications(implications, trends, horizonCount) {
 
   implications.forEach(item => {
     const target = implicationSourceTarget(item, trends.length, horizonCount);
-    const card = document.createElement(target ? "a" : "article");
+    const card = document.createElement("article");
     card.className = "mini-card implication-card";
-    if (target) {
-      card.href = target.href;
-      card.title = `Go to ${target.label}`;
-      card.setAttribute("aria-label", `${item.title || "Implication"}. Go to ${target.label}`);
-    }
 
     const heading = document.createElement("h4");
     heading.textContent = item.title || "Untitled";
@@ -339,9 +334,15 @@ function renderImplications(implications, trends, horizonCount) {
     card.appendChild(body);
 
     if (target) {
-      const sourceCue = document.createElement("span");
+      const sourceCue = document.createElement("a");
       sourceCue.className = "implication-source-cue";
+      sourceCue.href = target.href;
       sourceCue.textContent = `View ${target.label} →`;
+      sourceCue.title = `Go to ${target.label}`;
+      sourceCue.addEventListener("click", event => {
+        event.preventDefault();
+        focusReportSource(target.href);
+      });
       card.appendChild(sourceCue);
     }
 
@@ -363,6 +364,22 @@ function implicationSourceTarget(item, trendCount, horizonCount) {
     return { href: `#horizon-${index}`, label: `Horizon item ${index}` };
   }
   return null;
+}
+
+function focusReportSource(selector) {
+  const target = document.querySelector(selector);
+  if (!target) return;
+
+  document.querySelectorAll(".report-source-focus").forEach(item => item.classList.remove("report-source-focus"));
+  if (!target.hasAttribute("tabindex")) target.setAttribute("tabindex", "-1");
+  const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  target.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "center" });
+  window.setTimeout(() => {
+    target.focus({ preventScroll: true });
+    target.classList.add("report-source-focus");
+    history.replaceState(null, "", selector);
+    window.setTimeout(() => target.classList.remove("report-source-focus"), 2400);
+  }, reduceMotion ? 0 : 450);
 }
 
 function renderMiniCards(containerId, items, targetPrefix = "") {
