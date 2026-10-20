@@ -59,12 +59,20 @@ $payload = @{
             @{
                 title = "Regulatory Readiness"
                 body = "Review whether existing frameworks cover emerging technologies."
-                recommendations = @(
-                    @{
-                        text = "Assess the current framework against Emerging Connectivity Models."
-                        relatedTrendIndex = 1
-                    }
-                )
+                sourceSection = "priorityTrends"
+                sourceItemIndex = 1
+            },
+            @{
+                title = "Executive Coordination"
+                body = "Use the executive summary to coordinate the response."
+                sourceSection = "executiveSnapshot"
+                sourceItemIndex = 1
+            },
+            @{
+                title = "Horizon Preparation"
+                body = "Prepare for the emerging connectivity models under review."
+                sourceSection = "horizon"
+                sourceItemIndex = 1
             }
         )
         attentionSignals = @(

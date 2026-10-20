@@ -122,7 +122,7 @@
             </div>
             <div class="editor-field">
               <label for="implicationsJson">Implications JSON</label>
-              <p class="field-help">Each recommendation needs text and a one-based relatedTrendIndex.</p>
+              <p class="field-help">Each card needs sourceSection (executiveSnapshot, priorityTrends, or horizon) and a one-based sourceItemIndex.</p>
               <textarea id="implicationsJson"></textarea>
             </div>
             <div class="editor-field">
@@ -218,7 +218,7 @@
         <main class="main">
           <section id="snapshotPreview" class="card">
             <div class="section-title"><h2>1. Executive Snapshot</h2><span class="pill">Executive Summary</span></div>
-            <div class="snapshot" id="snapshotText">Select a report to preview its executive snapshot.</div>
+            <div class="snapshot source-item" id="snapshotText">Select a report to preview its executive snapshot.</div>
           </section>
 
           <section id="priorityPreview" class="card">

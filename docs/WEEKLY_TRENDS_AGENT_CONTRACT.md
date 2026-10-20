@@ -34,12 +34,8 @@ The agent output must map to this JSON shape:
       {
         "title": "",
         "body": "",
-        "recommendations": [
-          {
-            "text": "",
-            "relatedTrendIndex": 1
-          }
-        ]
+        "sourceSection": "priorityTrends",
+        "sourceItemIndex": 1
       }
     ],
     "attentionSignals": [],
@@ -69,7 +65,7 @@ The agent must prioritize:
 
 The agent must not include a trend unless it has a traceable source URL. If source quality is weak, place the caveat in `assumptions`.
 
-Every implication must include at least one actionable recommendation. `relatedTrendIndex` is one-based and must point to the priority trend that supports the recommendation. The application renders that recommendation as a link back to the related item.
+Every implication card must identify its primary supporting item in the first three report sections. `sourceSection` must be `executiveSnapshot`, `priorityTrends`, or `horizon`. `sourceItemIndex` is one-based; use `1` for the Executive Snapshot, or the position of the related Priority Trend or Horizon item. The application renders the entire implication card as a link back to that source.
 
 ## Automation Boundary
 

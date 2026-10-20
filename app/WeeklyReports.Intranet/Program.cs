@@ -470,14 +470,19 @@ static List<string> ValidateAgentContent(ReportContent content)
     if (content.References.Count < 5) issues.Add("At least five references are expected before unattended auto-publication.");
     if (content.References.Any(r => !Uri.TryCreate(r.Url, UriKind.Absolute, out var uri) || (uri.Scheme != Uri.UriSchemeHttps && uri.Scheme != Uri.UriSchemeHttp)))
         issues.Add("Every reference must include a valid HTTP or HTTPS URL.");
-    if (content.Implications.Any(i => i.Recommendations.Count == 0)) issues.Add("Every regulatory or strategic implication must include at least one recommendation.");
-    if (content.Implications.SelectMany(i => i.Recommendations).Any(r => string.IsNullOrWhiteSpace(r.Text)))
-        issues.Add("Every recommendation must include text.");
-    if (content.Implications.SelectMany(i => i.Recommendations).Any(r => r.RelatedTrendIndex < 1 || r.RelatedTrendIndex > content.PriorityTrends.Count))
-        issues.Add("Every recommendation must link to an existing priority trend.");
+    if (content.Implications.Any(i => !HasValidImplicationSource(i, content)))
+        issues.Add("Every regulatory or strategic implication must link to an existing item in Sections 1, 2, or 3.");
     if (content.Assumptions.Count == 0) issues.Add("Assumption exposure notes are missing.");
     return issues;
 }
+
+static bool HasValidImplicationSource(ImplicationItem implication, ReportContent content) => implication.SourceSection switch
+{
+    "executiveSnapshot" => implication.SourceItemIndex == 1,
+    "priorityTrends" => implication.SourceItemIndex >= 1 && implication.SourceItemIndex <= content.PriorityTrends.Count,
+    "horizon" => implication.SourceItemIndex >= 1 && implication.SourceItemIndex <= content.Horizon.Count,
+    _ => false
+};
 
 sealed class ReportStore(IWebHostEnvironment env, IConfiguration config)
 {
@@ -792,6 +797,8 @@ sealed class ReportStore(IWebHostEnvironment env, IConfiguration config)
     {
         var body = new StringBuilder();
         void AddParagraph(string text) => body.Append($"<w:p><w:r><w:t>{Xml(text)}</w:t></w:r></w:p>");
+        void AddBookmarkParagraph(string text, int id, string name) => body.Append($"<w:p><w:bookmarkStart w:id=\"{id}\" w:name=\"{name}\"/><w:r><w:t>{Xml(text)}</w:t></w:r><w:bookmarkEnd w:id=\"{id}\"/></w:p>");
+        void AddInternalLinkParagraph(string text, string anchor) => body.Append($"<w:p><w:hyperlink w:anchor=\"{anchor}\" w:history=\"1\"><w:r><w:rPr><w:color w:val=\"0563C1\"/><w:u w:val=\"single\"/></w:rPr><w:t>{Xml(text)}</w:t></w:r></w:hyperlink></w:p>");
 
         var openingParagraphs = new[]
         {
@@ -801,31 +808,34 @@ sealed class ReportStore(IWebHostEnvironment env, IConfiguration config)
             "NCA WEEKLY EMERGING TECHNOLOGIES & TRENDS REPORT",
             $"Reporting Week: {content.ReportingWeek}",
             $"Prepared by: {content.PreparedBy}",
-            "1. Executive Snapshot",
-            content.ExecutiveSnapshot,
-            "2. Priority Trends to Watch"
+            "1. Executive Snapshot"
         };
         foreach (var paragraph in openingParagraphs) AddParagraph(paragraph);
+        AddBookmarkParagraph(content.ExecutiveSnapshot, 1, "snapshot_1");
+        AddParagraph("2. Priority Trends to Watch");
 
         foreach (var (trend, index) in content.PriorityTrends.Select((value, index) => (value, index)))
         {
             var text = $"{trend.Title}: {trend.WhatHappened} Why It Matters: {trend.WhyItMatters} Signal: {trend.Signal} Risk/Opportunity: {trend.RiskOpportunity}";
-            body.Append($"<w:p><w:bookmarkStart w:id=\"{index + 1}\" w:name=\"trend_{index + 1}\"/><w:r><w:t>{Xml(text)}</w:t></w:r><w:bookmarkEnd w:id=\"{index + 1}\"/></w:p>");
+            AddBookmarkParagraph(text, 100 + index, $"trend_{index + 1}");
         }
 
         AddParagraph("3. Technologies & Developments on the Horizon");
-        foreach (var item in content.Horizon) AddParagraph($"{item.Title}: {item.Body}");
+        foreach (var (item, index) in content.Horizon.Select((value, index) => (value, index)))
+            AddBookmarkParagraph($"{item.Title}: {item.Body}", 200 + index, $"horizon_{index + 1}");
         AddParagraph("4. Regulatory & Strategic Implications");
         foreach (var implication in content.Implications)
         {
-            AddParagraph($"{implication.Title}: {implication.Body}");
-            foreach (var recommendation in implication.Recommendations)
+            var implicationText = $"{implication.Title}: {implication.Body}";
+            var anchor = implication.SourceSection switch
             {
-                if (recommendation.RelatedTrendIndex >= 1 && recommendation.RelatedTrendIndex <= content.PriorityTrends.Count)
-                    body.Append($"<w:p><w:hyperlink w:anchor=\"trend_{recommendation.RelatedTrendIndex}\" w:history=\"1\"><w:r><w:rPr><w:color w:val=\"0563C1\"/><w:u w:val=\"single\"/></w:rPr><w:t>Recommendation: {Xml(recommendation.Text)}</w:t></w:r></w:hyperlink></w:p>");
-                else
-                    AddParagraph($"Recommendation: {recommendation.Text}");
-            }
+                "executiveSnapshot" when implication.SourceItemIndex == 1 => "snapshot_1",
+                "priorityTrends" when implication.SourceItemIndex >= 1 && implication.SourceItemIndex <= content.PriorityTrends.Count => $"trend_{implication.SourceItemIndex}",
+                "horizon" when implication.SourceItemIndex >= 1 && implication.SourceItemIndex <= content.Horizon.Count => $"horizon_{implication.SourceItemIndex}",
+                _ => null
+            };
+            if (anchor is null) AddParagraph(implicationText);
+            else AddInternalLinkParagraph(implicationText, anchor);
         }
         AddParagraph("5. Executive Attention Signals");
         foreach (var signal in content.AttentionSignals) AddParagraph(signal);
@@ -960,9 +970,9 @@ record ImplicationItem
 {
     public string Title { get; init; } = "";
     public string Body { get; init; } = "";
-    public List<RecommendationItem> Recommendations { get; init; } = [];
+    public string SourceSection { get; init; } = "";
+    public int SourceItemIndex { get; init; }
 }
-record RecommendationItem(string Text, int RelatedTrendIndex);
 record ReferenceItem(string Title, string Url, string? Publisher = null, string? PublishedAt = null);
 
 enum ReportStatus { Draft, PendingReview, Published, Rejected }

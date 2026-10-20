@@ -275,8 +275,8 @@ function renderPreview(meta, content) {
   $("snapshotText").textContent = content.executiveSnapshot || "Select a report or add content to preview the executive snapshot.";
 
   renderTrends(content.priorityTrends || []);
-  renderMiniCards("horizonContainer", content.horizon || []);
-  renderImplications(content.implications || [], content.priorityTrends || []);
+  renderMiniCards("horizonContainer", content.horizon || [], "horizon");
+  renderImplications(content.implications || [], content.priorityTrends || [], (content.horizon || []).length);
   renderListCards("attentionContainer", content.attentionSignals || []);
   renderListCards("notesContainer", content.assumptions || []);
   renderReferences(content.references || []);
@@ -312,7 +312,7 @@ function renderTrends(trends) {
   });
 }
 
-function renderImplications(implications, trends) {
+function renderImplications(implications, trends, horizonCount) {
   const container = $("implicationsContainer");
   container.innerHTML = "";
   if (!implications.length) {
@@ -321,8 +321,14 @@ function renderImplications(implications, trends) {
   }
 
   implications.forEach(item => {
-    const card = document.createElement("article");
+    const target = implicationSourceTarget(item, trends.length, horizonCount);
+    const card = document.createElement(target ? "a" : "article");
     card.className = "mini-card implication-card";
+    if (target) {
+      card.href = target.href;
+      card.title = `Go to ${target.label}`;
+      card.setAttribute("aria-label", `${item.title || "Implication"}. Go to ${target.label}`);
+    }
 
     const heading = document.createElement("h4");
     heading.textContent = item.title || "Untitled";
@@ -332,38 +338,34 @@ function renderImplications(implications, trends) {
     body.textContent = item.body || "";
     card.appendChild(body);
 
-    const recommendations = Array.isArray(item.recommendations) ? item.recommendations : [];
-    if (recommendations.length) {
-      const label = document.createElement("div");
-      label.className = "recommendation-label";
-      label.textContent = "Recommendations";
-      card.appendChild(label);
-
-      const list = document.createElement("ul");
-      list.className = "recommendation-list";
-      recommendations.forEach(recommendation => {
-        const li = document.createElement("li");
-        const trendIndex = Number(recommendation.relatedTrendIndex);
-        const validTarget = Number.isInteger(trendIndex) && trendIndex >= 1 && trendIndex <= trends.length;
-        if (validTarget) {
-          const link = document.createElement("a");
-          link.href = `#trend-${trendIndex}`;
-          link.textContent = recommendation.text || `View related Trend ${trendIndex}`;
-          link.title = `Go to Trend ${trendIndex}: ${trends[trendIndex - 1]?.title || "Related trend"}`;
-          li.appendChild(link);
-        } else {
-          li.textContent = recommendation.text || "Recommendation";
-        }
-        list.appendChild(li);
-      });
-      card.appendChild(list);
+    if (target) {
+      const sourceCue = document.createElement("span");
+      sourceCue.className = "implication-source-cue";
+      sourceCue.textContent = `View ${target.label} →`;
+      card.appendChild(sourceCue);
     }
 
     container.appendChild(card);
   });
 }
 
-function renderMiniCards(containerId, items) {
+function implicationSourceTarget(item, trendCount, horizonCount) {
+  const index = Number(item.sourceItemIndex);
+  if (!Number.isInteger(index) || index < 1) return null;
+
+  if (item.sourceSection === "executiveSnapshot" && index === 1) {
+    return { href: "#snapshotText", label: "Executive Snapshot" };
+  }
+  if (item.sourceSection === "priorityTrends" && index <= trendCount) {
+    return { href: `#trend-${index}`, label: `Priority Trend ${index}` };
+  }
+  if (item.sourceSection === "horizon" && index <= horizonCount) {
+    return { href: `#horizon-${index}`, label: `Horizon item ${index}` };
+  }
+  return null;
+}
+
+function renderMiniCards(containerId, items, targetPrefix = "") {
   const container = $(containerId);
   container.innerHTML = "";
   if (!items.length) {
@@ -371,9 +373,13 @@ function renderMiniCards(containerId, items) {
     return;
   }
 
-  items.forEach(item => {
+  items.forEach((item, index) => {
     const card = document.createElement("article");
     card.className = "mini-card";
+    if (targetPrefix) {
+      card.id = `${targetPrefix}-${index + 1}`;
+      card.classList.add("source-item");
+    }
     card.innerHTML = `<h4>${escapeHtml(item.title || "Untitled")}</h4><p>${escapeHtml(item.body || "")}</p>`;
     container.appendChild(card);
   });
