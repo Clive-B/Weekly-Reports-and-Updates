@@ -9,17 +9,56 @@ using System.IO.Compression;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Mvc;
 
 var builder = WebApplication.CreateBuilder(args);
+
+if (builder.Configuration.GetValue<bool>("ReverseProxy:TrustForwardedHeaders"))
+{
+    builder.Services.Configure<ForwardedHeadersOptions>(options =>
+    {
+        options.ForwardedHeaders = ForwardedHeaders.XForwardedFor
+            | ForwardedHeaders.XForwardedProto
+            | ForwardedHeaders.XForwardedHost;
+        options.KnownNetworks.Clear();
+        options.KnownProxies.Clear();
+    });
+}
 
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
     .AddCookie(options =>
     {
         options.Cookie.Name = "nca_weekly_reports_auth";
+        options.Cookie.HttpOnly = true;
+        options.Cookie.SameSite = SameSiteMode.Lax;
+        options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
         options.LoginPath = "/";
         options.AccessDeniedPath = "/";
         options.SlidingExpiration = true;
+        options.Events.OnRedirectToLogin = context =>
+        {
+            if (context.Request.Path.StartsWithSegments("/api"))
+            {
+                context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                return Task.CompletedTask;
+            }
+
+            context.Response.Redirect(context.RedirectUri);
+            return Task.CompletedTask;
+        };
+        options.Events.OnRedirectToAccessDenied = context =>
+        {
+            if (context.Request.Path.StartsWithSegments("/api"))
+            {
+                context.Response.StatusCode = StatusCodes.Status403Forbidden;
+                return Task.CompletedTask;
+            }
+
+            context.Response.Redirect(context.RedirectUri);
+            return Task.CompletedTask;
+        };
     });
 builder.Services.AddAuthorization(options =>
 {
@@ -29,6 +68,9 @@ builder.Services.AddAuthorization(options =>
 });
 builder.Services.AddSingleton<ReportStore>();
 builder.Services.AddSingleton<PasswordVerifier>();
+builder.Services.AddDataProtection();
+builder.Services.AddHttpClient("OpenAI", client => client.Timeout = TimeSpan.FromMinutes(6));
+builder.Services.AddSingleton<ProviderCredentialStore>();
 builder.Services.ConfigureHttpJsonOptions(options =>
 {
     options.SerializerOptions.Converters.Add(new JsonStringEnumConverter());
@@ -36,6 +78,7 @@ builder.Services.ConfigureHttpJsonOptions(options =>
 
 var app = builder.Build();
 
+app.UseForwardedHeaders();
 app.UseDefaultFiles();
 app.UseStaticFiles();
 app.UseAuthentication();
@@ -65,6 +108,36 @@ app.MapGet("/api/admin/diagnostics", [Authorize(Policy = "Admin")] (
     return Results.Ok(store.GetDiagnostics(config));
 });
 
+app.MapGet("/api/admin/provider-key/status", [Authorize(Policy = "Admin")] (
+    ProviderCredentialStore credentials) => Results.Ok(credentials.Status()));
+
+app.MapPost("/api/admin/provider-key", [Authorize(Policy = "Admin")] async (
+    [FromBody] ProviderKeyRequest request,
+    ProviderCredentialStore credentials,
+    IHttpClientFactory clients,
+    CancellationToken cancellationToken) =>
+{
+    var apiKey = request.ApiKey?.Trim();
+    if (string.IsNullOrWhiteSpace(apiKey))
+    {
+        return Results.BadRequest(new { error = "Enter an API key." });
+    }
+
+    using var validation = new HttpRequestMessage(HttpMethod.Get, "https://api.openai.com/v1/models");
+    validation.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", apiKey);
+    using var response = await clients.CreateClient("OpenAI").SendAsync(validation, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+    if (!response.IsSuccessStatusCode)
+    {
+        return Results.BadRequest(new { error = "The provider did not accept this API key. Nothing was saved." });
+    }
+
+    var status = credentials.Save(apiKey);
+    return Results.Ok(status);
+});
+
+app.MapDelete("/api/admin/provider-key", [Authorize(Policy = "Admin")] (
+    ProviderCredentialStore credentials) => Results.Ok(credentials.Remove()));
+
 app.MapPost("/api/login", async (
     [FromBody] LoginRequest request,
     IConfiguration config,
@@ -90,7 +163,7 @@ app.MapPost("/api/login", async (
         CookieAuthenticationDefaults.AuthenticationScheme,
         new ClaimsPrincipal(new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme)));
 
-    return Results.Ok(new { authenticated = true, user = user.Username, roles = user.Roles });
+    return Results.Ok(new { authenticated = true, user = user.Username, roles = user.Roles.Distinct().ToArray() });
 });
 
 app.MapPost("/api/logout", async (HttpContext context) =>
@@ -239,6 +312,7 @@ app.MapPost("/api/reports/{id}/auto-publish", (
     ReportStore store) =>
 {
     if (!HasValidAgentKey(request, config)) return Results.Unauthorized();
+    if (!config.GetValue<bool>("Agent:AllowAutoPublish")) return Results.StatusCode(StatusCodes.Status403Forbidden);
     var updated = store.Publish(id, "weekly-trends-agent", PublicationMode.AutoPublished);
     return updated is null ? Results.NotFound() : Results.Ok(updated);
 });
@@ -267,12 +341,45 @@ app.MapPost("/api/agent/run", (
     store.SaveValidation(report.Id, issues);
     store.ChangeStatus(report.Id, ReportStatus.PendingReview, "weekly-trends-agent", "agent_draft_generated");
 
-    if (request.AutoPublishIfValid && issues.Count == 0)
+    if (request.AutoPublishIfValid && config.GetValue<bool>("Agent:AllowAutoPublish") && issues.Count == 0)
     {
         store.Publish(report.Id, "weekly-trends-agent", PublicationMode.AutoPublished);
     }
 
     return Results.Ok(store.Get(report.Id));
+});
+
+app.MapPost("/api/agent/provider-response", async (
+    [FromBody] JsonElement providerRequest,
+    HttpRequest httpRequest,
+    IConfiguration config,
+    ProviderCredentialStore credentials,
+    IHttpClientFactory clients,
+    CancellationToken cancellationToken) =>
+{
+    if (!HasValidAgentKey(httpRequest, config)) return Results.Unauthorized();
+
+    var apiKey = credentials.Get();
+    if (string.IsNullOrWhiteSpace(apiKey))
+    {
+        return Results.Problem("The provider API key has not been configured by an administrator.", statusCode: StatusCodes.Status503ServiceUnavailable);
+    }
+
+    using var outbound = new HttpRequestMessage(HttpMethod.Post, "https://api.openai.com/v1/responses");
+    outbound.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", apiKey);
+    outbound.Content = new StringContent(providerRequest.GetRawText(), Encoding.UTF8, "application/json");
+    using var response = await clients.CreateClient("OpenAI").SendAsync(outbound, HttpCompletionOption.ResponseContentRead, cancellationToken);
+    var body = await response.Content.ReadAsStringAsync(cancellationToken);
+    return Results.Content(body, "application/json", Encoding.UTF8, (int)response.StatusCode);
+});
+
+app.MapGet("/api/agent/provider-key/status", (
+    HttpRequest request,
+    IConfiguration config,
+    ProviderCredentialStore credentials) =>
+{
+    if (!HasValidAgentKey(request, config)) return Results.Unauthorized();
+    return Results.Ok(new { configured = credentials.Status().Configured });
 });
 
 app.MapPost("/api/agent/watchdog-check", (
@@ -295,14 +402,18 @@ app.MapPost("/api/agent/watchdog-check", (
         return Results.Ok(new WatchdogCheckResponse(weekStart, weekEnd, false, true, null, "No report exists for the target reporting week."));
     }
 
-    var published = report.Meta.Status == ReportStatus.Published;
+    var isSyntheticPlaceholder = string.Equals(report.Content.PreparedBy, "Test Deployment", StringComparison.OrdinalIgnoreCase)
+        || report.Content.ReportingWeek.Contains("Synthetic deployment verification", StringComparison.OrdinalIgnoreCase);
+    var published = report.Meta.Status == ReportStatus.Published && !isSyntheticPlaceholder;
     store.AppendAudit(
         report.Meta.Id,
         published ? "watchdog_skipped" : "watchdog_triggered_agent",
         "weekly-trends-agent",
         published
             ? "Published report already exists for the target reporting week."
-            : $"Report exists but status is {report.Meta.Status}; agent fallback should run.");
+            : isSyntheticPlaceholder
+                ? "Synthetic deployment placeholder detected; agent fallback should replace it."
+                : $"Report exists but status is {report.Meta.Status}; agent fallback should run.");
 
     return Results.Ok(new WatchdogCheckResponse(
         weekStart,
@@ -310,7 +421,11 @@ app.MapPost("/api/agent/watchdog-check", (
         published,
         !published,
         report.Meta.Id,
-        published ? "Published report already exists." : $"Report status is {report.Meta.Status}."));
+        published
+            ? "Published report already exists."
+            : isSyntheticPlaceholder
+                ? "Synthetic deployment placeholder must be replaced."
+                : $"Report status is {report.Meta.Status}."));
 });
 
 app.MapGet("/api/tools/hash-password", [Authorize(Policy = "Admin")] (
@@ -379,6 +494,13 @@ sealed class ReportStore(IWebHostEnvironment env, IConfiguration config)
         }
     }
 
+    public string GetSecretsRoot()
+    {
+        var root = Path.Combine(ReportsRoot(), ".secrets");
+        Directory.CreateDirectory(root);
+        return root;
+    }
+
     public AppDiagnostics GetDiagnostics(IConfiguration config)
     {
         var health = CheckStorage();
@@ -415,6 +537,7 @@ sealed class ReportStore(IWebHostEnvironment env, IConfiguration config)
             reportsRootError,
             health,
             !string.IsNullOrWhiteSpace(config["Agent:ApiKey"]),
+            config.GetValue<bool>("Agent:AllowAutoPublish"),
             reports.Length,
             reports.GroupBy(r => r.Status.ToString()).ToDictionary(g => g.Key, g => g.Count()),
             reports.Take(10).ToArray(),
@@ -513,7 +636,8 @@ sealed class ReportStore(IWebHostEnvironment env, IConfiguration config)
     public void WriteDocx(string id, ReportContent content)
     {
         var path = Path.Combine(ReportDir(id), "report.docx");
-        using var archive = ZipFile.Open(path, ZipArchiveMode.Create);
+        using var output = File.Create(path);
+        using var archive = new ZipArchive(output, ZipArchiveMode.Create);
         WriteZipEntry(archive, "[Content_Types].xml", ContentTypesXml());
         WriteZipEntry(archive, "_rels/.rels", RelationshipsXml());
         WriteZipEntry(archive, "word/_rels/document.xml.rels", WordRelationshipsXml());
@@ -656,7 +780,7 @@ sealed class ReportStore(IWebHostEnvironment env, IConfiguration config)
         var paragraphs = new List<string>
         {
             "NATIONAL COMMUNICATIONS AUTHORITY",
-            "Research Innovation Policy and Strategy",
+            "Innovation & Policy",
             "EMERGING TRENDS AND TECHNOLOGIES",
             "NCA WEEKLY EMERGING TECHNOLOGIES & TRENDS REPORT",
             $"Reporting Week: {content.ReportingWeek}",
@@ -705,7 +829,51 @@ sealed class PasswordVerifier
     }
 }
 
+sealed class ProviderCredentialStore(ReportStore reports, IDataProtectionProvider dataProtection)
+{
+    private readonly IDataProtector _protector = dataProtection.CreateProtector("NCA.WeeklyReports.OpenAI.ApiKey.v1");
+    private string CredentialPath => Path.Combine(reports.GetSecretsRoot(), "openai-api-key.protected");
+    private string MetadataPath => Path.Combine(reports.GetSecretsRoot(), "openai-api-key.json");
+
+    public ProviderKeyStatus Status()
+    {
+        if (!File.Exists(CredentialPath)) return new ProviderKeyStatus(false, null);
+        DateTimeOffset? updatedAt = null;
+        if (File.Exists(MetadataPath))
+        {
+            try { updatedAt = JsonSerializer.Deserialize<ProviderKeyMetadata>(File.ReadAllText(MetadataPath))?.UpdatedAt; }
+            catch (JsonException) { }
+        }
+        return new ProviderKeyStatus(true, updatedAt);
+    }
+
+    public ProviderKeyStatus Save(string apiKey)
+    {
+        var updatedAt = DateTimeOffset.UtcNow;
+        File.WriteAllText(CredentialPath, _protector.Protect(apiKey));
+        File.WriteAllText(MetadataPath, JsonSerializer.Serialize(new ProviderKeyMetadata(updatedAt)));
+        return new ProviderKeyStatus(true, updatedAt);
+    }
+
+    public string? Get()
+    {
+        if (!File.Exists(CredentialPath)) return null;
+        try { return _protector.Unprotect(File.ReadAllText(CredentialPath)); }
+        catch (CryptographicException) { return null; }
+    }
+
+    public ProviderKeyStatus Remove()
+    {
+        if (File.Exists(CredentialPath)) File.Delete(CredentialPath);
+        if (File.Exists(MetadataPath)) File.Delete(MetadataPath);
+        return new ProviderKeyStatus(false, null);
+    }
+}
+
 record LoginRequest(string Username, string Password);
+record ProviderKeyRequest(string? ApiKey);
+record ProviderKeyStatus(bool Configured, DateTimeOffset? UpdatedAt);
+record ProviderKeyMetadata(DateTimeOffset UpdatedAt);
 record RejectRequest(string Reason);
 record DraftRequest(DateOnly WeekStart, DateOnly WeekEnd, string Title, PublicationMode Mode, ReportContent Content);
 record AgentRunRequest(DateOnly? WeekStart, DateOnly? WeekEnd, string? Title, bool AutoPublishIfValid, ReportContent Content);
@@ -720,6 +888,7 @@ record AppDiagnostics(
     string? ReportsRootError,
     StorageHealth Storage,
     bool AgentKeyConfigured,
+    bool AgentAutoPublishEnabled,
     int ReportCount,
     Dictionary<string, int> ReportsByStatus,
     IReadOnlyList<ReportSummary> LatestReports,
@@ -736,7 +905,7 @@ record AuditRecord(DateTimeOffset At, string Actor, string Action, string Detail
 record ReportContent
 {
     public string ReportingWeek { get; init; } = "";
-    public string PreparedBy { get; init; } = "Innovation Unit";
+    public string PreparedBy { get; init; } = "Innovation & Policy";
     public string ExecutiveSnapshot { get; init; } = "";
     public List<TrendItem> PriorityTrends { get; init; } = [];
     public List<SectionItem> Horizon { get; init; } = [];

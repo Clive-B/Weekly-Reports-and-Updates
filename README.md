@@ -40,4 +40,8 @@ Before production use, configure:
 
 The automated weekly generator is under `tools/nca-weekly-agent/`. It is a Linux runner that uses the OpenAI Responses API, web search, and a strict JSON schema to produce the payload consumed by `/api/agent/run`. Deployment and offline-test instructions are in `app/WeeklyReports.Intranet/DOCKER_APP_NEEDS.md`.
 
+An executable container deployment is provided in `Dockerfile` and `compose.test.yaml`. See `docs/TEST_SERVER_DEPLOYMENT.md` for the test-host setup and verification procedure.
+
+See `docs/SYSTEM_OVERVIEW.md` for the application architecture, access model, data flow, governance posture, and current operational gaps.
+
 The legacy `Weekly Report HTML File.html` remains as the original standalone local template.

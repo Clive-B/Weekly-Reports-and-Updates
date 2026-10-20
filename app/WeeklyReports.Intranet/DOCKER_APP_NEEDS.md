@@ -22,6 +22,7 @@ ASPNETCORE_URLS=http://+:8080
 ASPNETCORE_ENVIRONMENT=Production
 Reports__Root=reports
 Agent__ApiKey=<strong-random-agent-secret>
+Agent__AllowAutoPublish=false
 ```
 
 `Reports__Root=reports` resolves under the application content root in a published/container layout, so the expected production path is `/app/reports`. If a deployment uses a different application root, set `Reports__RepoRoot` to that root explicitly.
@@ -178,11 +179,13 @@ APP_BASE_URL=http://localhost:8080
 AGENT_API_KEY=<same value as Agent__ApiKey>
 AGENT_GENERATE_COMMAND=/nca-weekly-agent/generate-weekly-report.sh
 OPENAI_API_KEY=<OpenAI platform API key>
-OPENAI_MODEL=gpt-5.6-terra
+OPENAI_MODEL=gpt-5.5
 AGENT_AUTO_PUBLISH=false
 ```
 
 `OPENAI_MODEL` is optional and overrides the generator default. Keep `AGENT_AUTO_PUBLISH=false` for initial testing; change it to `true` only after the generated report has been reviewed and the production pipeline has been verified.
+
+The application independently requires `Agent__AllowAutoPublish=true` before either agent auto-publication endpoint can publish. Leave it `false` in test environments and whenever human review is required.
 
 Example cron entries:
 

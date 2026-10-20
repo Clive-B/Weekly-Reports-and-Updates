@@ -6,6 +6,11 @@ const $ = id => document.getElementById(id);
 
 const reportStatusNames = ["Draft", "PendingReview", "Published", "Rejected"];
 const publicationModeNames = ["Uploaded", "AgentGenerated", "AgentGeneratedNeedsReview", "HumanApproved", "AutoPublished"];
+const unitName = "Innovation & Policy";
+
+function preparedByLabel(value) {
+  return !value || value === "Innovation Unit" ? unitName : value;
+}
 
 function enumName(value, names) {
   if (typeof value === "number") return names[value] || String(value);
@@ -65,6 +70,7 @@ function showAuthenticated(authenticated) {
   $("editorSignInBtn").classList.toggle("hidden", authenticated);
   $("logoutBtn").classList.toggle("hidden", !authenticated);
   if (authenticated) $("loginPanel").classList.add("hidden");
+  $("providerTabBtn").classList.toggle("hidden", !authenticated || !hasRole("Admin"));
 }
 
 async function loadSession() {
@@ -75,6 +81,50 @@ async function loadSession() {
     : "Public view";
 
   await loadReports();
+  if (session.authenticated && hasRole("Admin")) await loadProviderStatus();
+}
+
+async function loadProviderStatus() {
+  try {
+    const status = await api("/api/admin/provider-key/status");
+    $("providerKeyStatus").textContent = status.configured
+      ? `Configured${status.updatedAt ? ` · updated ${new Date(status.updatedAt).toLocaleString()}` : ""}`
+      : "Not configured";
+    $("removeProviderKeyBtn").classList.toggle("hidden", !status.configured);
+  } catch {
+    $("providerKeyStatus").textContent = "Configuration status unavailable";
+  }
+}
+
+async function saveProviderKey() {
+  const apiKey = $("providerApiKey").value.trim();
+  $("providerKeyError").textContent = "";
+  if (!apiKey) {
+    $("providerKeyError").textContent = "Enter an API key.";
+    return;
+  }
+  $("saveProviderKeyBtn").disabled = true;
+  try {
+    await api("/api/admin/provider-key", { method: "POST", body: JSON.stringify({ apiKey }) });
+    await loadProviderStatus();
+  } catch {
+    $("providerKeyError").textContent = "The key was not accepted and was not saved.";
+  } finally {
+    $("providerApiKey").value = "";
+    $("saveProviderKeyBtn").disabled = false;
+  }
+}
+
+async function removeProviderKey() {
+  if (!confirm("Remove the saved API key? The agent will stop generating reports until another key is saved.")) return;
+  $("providerKeyError").textContent = "";
+  try {
+    await api("/api/admin/provider-key", { method: "DELETE" });
+    $("providerApiKey").value = "";
+    await loadProviderStatus();
+  } catch {
+    $("providerKeyError").textContent = "The saved key could not be removed.";
+  }
 }
 
 function openLogin() {
@@ -135,7 +185,7 @@ function renderNoPublishedReport() {
   $("reportTitle").textContent = "No published report available";
   $("reportMeta").textContent = "An editor must publish a report before it appears in the public view.";
   $("previewWeek").textContent = "Awaiting publication";
-  $("previewPreparedBy").textContent = "Innovation Unit";
+  $("previewPreparedBy").textContent = unitName;
   $("previewStatus").textContent = "Not published";
   $("previewMode").textContent = "Public read-only";
   $("snapshotText").textContent = "The latest approved weekly report will appear here once published.";
@@ -151,7 +201,7 @@ function renderReportLoadError() {
   $("reportTitle").textContent = "Publication service unavailable";
   $("reportMeta").textContent = "The public report store could not be reached. Check the production reports volume and application logs.";
   $("previewWeek").textContent = "Service check required";
-  $("previewPreparedBy").textContent = "Innovation Unit";
+  $("previewPreparedBy").textContent = unitName;
   $("previewStatus").textContent = "Storage/API error";
   $("previewMode").textContent = "Public read-only";
   $("snapshotText").textContent = "The latest approved weekly report cannot be loaded because the report service returned an error.";
@@ -198,7 +248,7 @@ function renderSelected() {
   $("rejectBtn").classList.toggle("hidden", !(hasRole("Reviewer") || hasRole("Admin")) || status !== "PendingReview");
 
   $("contentWeek").value = content.reportingWeek || `${meta.weekStart} to ${meta.weekEnd}`;
-  $("preparedBy").value = content.preparedBy || "Innovation Unit";
+  $("preparedBy").value = preparedByLabel(content.preparedBy);
   $("snapshot").value = content.executiveSnapshot || "";
   $("trendsJson").value = JSON.stringify(content.priorityTrends || [], null, 2);
   $("horizonJson").value = JSON.stringify(content.horizon || [], null, 2);
@@ -219,7 +269,7 @@ function renderSelected() {
 
 function renderPreview(meta, content) {
   $("previewWeek").textContent = content.reportingWeek || `${meta.weekStart} to ${meta.weekEnd}`;
-  $("previewPreparedBy").textContent = content.preparedBy || "Innovation Unit";
+  $("previewPreparedBy").textContent = preparedByLabel(content.preparedBy);
   $("previewStatus").textContent = reportStatusLabel(meta.status);
   $("previewMode").textContent = publicationModeLabel(meta.publicationMode);
   $("snapshotText").textContent = content.executiveSnapshot || "Select a report or add content to preview the executive snapshot.";
@@ -280,16 +330,24 @@ function renderMiniCards(containerId, items) {
 function renderListCards(containerId, items) {
   const container = $(containerId);
   container.innerHTML = "";
-  const card = document.createElement("article");
-  card.className = "mini-card attention-card";
 
   if (!items.length) {
+    const card = document.createElement("article");
+    card.className = "mini-card attention-card";
     card.innerHTML = `<p>No entries have been added yet.</p>`;
-  } else {
-    card.innerHTML = `<ul>${items.map(item => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`;
+    container.appendChild(card);
+    return;
   }
 
-  container.appendChild(card);
+  items.forEach((item, index) => {
+    const card = document.createElement("article");
+    card.className = "mini-card attention-card list-item-card";
+    card.innerHTML = `
+      <div class="list-item-number" aria-hidden="true">${index + 1}</div>
+      <p>${escapeHtml(item)}</p>
+    `;
+    container.appendChild(card);
+  });
 }
 
 function renderReferences(references) {
@@ -371,7 +429,7 @@ async function reject() {
 
 function switchTab(tab) {
   document.querySelectorAll(".tab").forEach(button => button.classList.toggle("active", button.dataset.tab === tab));
-  ["upload", "content", "audit"].forEach(name => {
+  ["upload", "content", "audit", "provider"].forEach(name => {
     $(`${name}Tab`).classList.toggle("hidden", name !== tab);
   });
 }
@@ -398,6 +456,9 @@ document.addEventListener("DOMContentLoaded", () => {
   $("submitReviewBtn").addEventListener("click", () => action("submit-review"));
   $("approveBtn").addEventListener("click", () => action("approve"));
   $("rejectBtn").addEventListener("click", reject);
+  $("saveProviderKeyBtn").addEventListener("click", saveProviderKey);
+  $("removeProviderKeyBtn").addEventListener("click", removeProviderKey);
+  $("providerApiKey").addEventListener("keydown", event => { if (event.key === "Enter") saveProviderKey(); });
   document.querySelectorAll(".tab").forEach(button => button.addEventListener("click", () => switchTab(button.dataset.tab)));
   loadSession();
 });

@@ -1,0 +1,13 @@
+.git
+.agents
+.codex
+**/bin
+**/obj
+reports
+*.docx
+*.zip
+/Weekly Report HTML File.html
+Weekly Reports Login.txt
+app/**/appsettings.Production.json
+**/*.user
+**/*.suo

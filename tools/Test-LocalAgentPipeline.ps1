@@ -1,7 +1,8 @@
 [CmdletBinding()]
 param(
     [string]$BaseUrl = "http://localhost:5188",
-    [string]$AgentKey = "local-test-agent-key"
+    [string]$AgentKey = "local-test-agent-key",
+    [switch]$AutoPublish
 )
 
 $ErrorActionPreference = "Stop"
@@ -42,10 +43,10 @@ $payload = @{
     weekStart = $weekStart
     weekEnd = $weekEnd
     title = "Local Weekly Trends Pipeline Test"
-    autoPublishIfValid = $true
+    autoPublishIfValid = [bool]$AutoPublish
     content = @{
         reportingWeek = "$weekStart to $weekEnd"
-        preparedBy = "Innovation Unit"
+        preparedBy = "Innovation & Policy"
         executiveSnapshot = "Synthetic content created to verify the local agent publication pipeline."
         priorityTrends = $trends
         horizon = @(
@@ -78,15 +79,21 @@ $result = Invoke-RestMethod `
     -ContentType "application/json" `
     -Body ($payload | ConvertTo-Json -Depth 10)
 
-$current = Invoke-RestMethod -Uri "$base/api/reports/current"
+$stored = if ($AutoPublish) {
+    Invoke-RestMethod -Uri "$base/api/reports/current"
+} else {
+    Invoke-RestMethod `
+        -Uri "$base/api/reports/by-week?weekStart=$weekStart&weekEnd=$weekEnd" `
+        -Headers $headers
+}
 
 Write-Host "Local agent pipeline test passed." -ForegroundColor Green
 [pscustomobject]@{
     SubmittedReportId = $result.meta.id
     SubmittedStatus = $result.meta.status
     PublicationMode = $result.meta.publicationMode
-    CurrentReportId = $current.meta.id
-    CurrentTitle = $current.meta.title
-    TrendCount = $current.content.priorityTrends.Count
-    ReferenceCount = $current.content.references.Count
+    StoredReportId = $stored.meta.id
+    StoredTitle = $stored.meta.title
+    TrendCount = $stored.content.priorityTrends.Count
+    ReferenceCount = $stored.content.references.Count
 }

@@ -1,0 +1,33 @@
+FROM alpine:3.22
+
+RUN apk add --no-cache \
+      bash \
+      ca-certificates \
+      coreutils \
+      curl \
+      jq \
+      tzdata \
+    && addgroup -S agent \
+    && adduser -S -G agent agent \
+    && mkdir -p /nca-weekly-agent /state \
+    && chown -R agent:agent /state
+
+COPY --chmod=0555 tools/nca-weekly-agent/ /nca-weekly-agent/
+COPY --chmod=0555 tools/weekly-agent-watchdog.sh /usr/local/bin/weekly-agent-watchdog.sh
+RUN chmod 0555 \
+      /nca-weekly-agent/generate-weekly-report.sh \
+      /nca-weekly-agent/run-scheduler.sh \
+      /nca-weekly-agent/test-generate-weekly-report.sh \
+      /usr/local/bin/weekly-agent-watchdog.sh
+
+ENV TZ=Africa/Accra \
+    AGENT_GENERATE_COMMAND=/nca-weekly-agent/generate-weekly-report.sh \
+    AGENT_AUTO_PUBLISH=false \
+    OPENAI_MODEL=gpt-5.5 \
+    OPENAI_REASONING_EFFORT=medium \
+    SCHEDULER_STATE_DIR=/state
+
+USER agent
+VOLUME ["/state"]
+
+CMD ["/nca-weekly-agent/run-scheduler.sh"]

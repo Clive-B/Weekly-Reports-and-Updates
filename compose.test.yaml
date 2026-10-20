@@ -1,0 +1,73 @@
+services:
+  weekly-reports:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: nca-weekly-reports:test
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_HTTP_PORTS: "8080"
+      Reports__Root: reports
+      ReverseProxy__TrustForwardedHeaders: "true"
+      Agent__ApiKey: "${AGENT_API_KEY:?Set AGENT_API_KEY in .env.test}"
+      Agent__AllowAutoPublish: "false"
+      Auth__Users__0__PasswordHash: "${ADMIN_PASSWORD_HASH:?Set ADMIN_PASSWORD_HASH in .env.test}"
+    ports:
+      - "127.0.0.1:${TEST_HTTP_PORT:-8080}:8080"
+    volumes:
+      - weekly-reports-test-data:/app/reports
+      - weekly-reports-test-keys:/home/app/.aspnet/DataProtection-Keys
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+
+  weekly-agent:
+    profiles: ["agent"]
+    build:
+      context: .
+      dockerfile: Dockerfile.agent
+    image: nca-weekly-reports-agent:test
+    restart: unless-stopped
+    depends_on:
+      - weekly-reports
+    environment:
+      APP_BASE_URL: http://weekly-reports:8080
+      AGENT_API_KEY: "${AGENT_API_KEY:?Set AGENT_API_KEY in .env.test}"
+      OPENAI_PROXY_URL: http://weekly-reports:8080/api/agent/provider-response
+      OPENAI_MODEL: "${OPENAI_MODEL:-gpt-5.5}"
+      OPENAI_REASONING_EFFORT: medium
+      AGENT_AUTO_PUBLISH: "false"
+      TZ: Africa/Accra
+    volumes:
+      - weekly-reports-agent-state:/state
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+
+  weekly-reports-edge:
+    image: nginx:1.29-alpine
+    restart: unless-stopped
+    depends_on:
+      - weekly-reports
+    ports:
+      - "0.0.0.0:${WEEKLY_REPORTS_HTTPS_PORT:-3055}:443"
+    volumes:
+      - ./deploy/nginx.weekly-reports.conf:/etc/nginx/conf.d/default.conf:ro
+      - /docker-apps/base_containers/configs/ssl/wildcard-corp-nca-fullchain.crt:/etc/nginx/certs/fullchain.pem:ro
+      - /docker-apps/base_containers/configs/ssl/wildcard-corp-nca.key:/etc/nginx/certs/privkey.pem:ro
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /var/cache/nginx:size=32m,mode=0755
+      - /var/run:size=4m,mode=0755
+
+volumes:
+  weekly-reports-test-data:
+  weekly-reports-test-keys:
+  weekly-reports-agent-state:

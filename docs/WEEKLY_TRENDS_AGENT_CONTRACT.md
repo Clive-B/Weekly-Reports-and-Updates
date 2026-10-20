@@ -13,7 +13,7 @@ The agent output must map to this JSON shape:
   "autoPublishIfValid": false,
   "content": {
     "reportingWeek": "15 - 19 June 2026",
-    "preparedBy": "Innovation Unit",
+    "preparedBy": "Innovation & Policy",
     "executiveSnapshot": "",
     "priorityTrends": [
       {

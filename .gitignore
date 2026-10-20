@@ -6,3 +6,5 @@ desktop.ini
 app/**/bin/
 app/**/obj/
 app/**/appsettings.Production.json
+.env.test
+.deploy/

@@ -16,9 +16,9 @@
           </div>
           <div class="sticky-copy">
             <div class="sticky-kicker">National Communications Authority</div>
-            <h1 class="sticky-title">Research Innovation Strategy & Policy</h1>
+            <h1 class="sticky-title">Innovation &amp; Policy</h1>
             <div class="sticky-subtitle">Weekly Emerging Technologies & Trends Report</div>
-            <div class="identity-motto">Strategy & Policy · Evidence, Innovation, Impact</div>
+            <div class="identity-motto">Innovation &amp; Policy · Evidence, Innovation, Impact</div>
           </div>
         </div>
         <div class="sticky-actions">
@@ -60,6 +60,7 @@
             <button class="btn-light tab active" data-tab="upload" type="button">Upload Word File</button>
             <button class="btn-light tab" data-tab="content" type="button">Edit Content</button>
             <button class="btn-outline tab" data-tab="audit" type="button">Audit Trail</button>
+            <button class="btn-outline tab hidden" id="providerTabBtn" data-tab="provider" type="button">Agent Setup</button>
             <button class="btn-outline" id="refreshBtn" type="button">Refresh Reports</button>
           </div>
         </div>
@@ -146,6 +147,23 @@
           <div id="validationBox" class="rule-card hidden"></div>
           <pre id="auditLog"></pre>
         </div>
+
+        <div id="providerTab" class="tab-panel hidden">
+          <div class="provider-key-card">
+            <h3>OpenAI API key</h3>
+            <p>Administrators can validate and securely store the key used by the weekly report agent. The saved key is encrypted and is never shown again.</p>
+            <div class="editor-field full">
+              <label for="providerApiKey">API key</label>
+              <input id="providerApiKey" type="password" autocomplete="new-password" spellcheck="false" placeholder="Paste API key">
+            </div>
+            <div class="toolbar-actions lower-actions">
+              <button class="btn-gold" id="saveProviderKeyBtn" type="button">Validate &amp; Save</button>
+              <button class="btn-outline" id="removeProviderKeyBtn" type="button">Remove Saved Key</button>
+            </div>
+            <p id="providerKeyStatus" class="status">Checking configuration...</p>
+            <p id="providerKeyError" class="auth-error"></p>
+          </div>
+        </div>
       </section>
 
       <section class="report-picker card" id="reportPicker">
@@ -159,7 +177,7 @@
       </section>
 
       <header class="hero">
-        <div class="eyebrow">National Communications Authority · Research Innovation Policy and Strategy</div>
+        <div class="eyebrow">National Communications Authority · Innovation &amp; Policy</div>
         <div class="hero-brand">
           <div class="hero-logo-wrap">
             <img class="hero-logo" src="assets/nca-30-logo.png" alt="National Communications Authority 30 years logo">

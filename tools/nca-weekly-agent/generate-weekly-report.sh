@@ -7,7 +7,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 SCHEMA_PATH="${NCA_AGENT_SCHEMA_PATH:-${SCRIPT_DIR}/weekly-report-content.schema.json}"
 OPENAI_API_BASE="${OPENAI_API_BASE:-https://api.openai.com/v1}"
-OPENAI_MODEL="${OPENAI_MODEL:-gpt-5.6-terra}"
+OPENAI_MODEL="${OPENAI_MODEL:-gpt-5.5}"
 OPENAI_REASONING_EFFORT="${OPENAI_REASONING_EFFORT:-medium}"
 OPENAI_TIMEOUT_SECONDS="${OPENAI_TIMEOUT_SECONDS:-300}"
 AGENT_AUTO_PUBLISH="${AGENT_AUTO_PUBLISH:-false}"
@@ -71,7 +71,7 @@ fi
 REPORT_TITLE="${REPORT_TITLE:-Weekly Emerging Technologies & Trends Report: ${REPORTING_WEEK}}"
 
 read -r -d '' SYSTEM_PROMPT <<'PROMPT' || true
-You prepare evidence-led weekly emerging technologies and telecommunications reports for Ghana's National Communications Authority Innovation Unit.
+You prepare evidence-led weekly emerging technologies and telecommunications reports for Ghana's National Communications Authority Innovation & Policy unit.
 
 Use web search and include only developments that occurred or were officially announced during the supplied Monday-Friday reporting window. Prioritize primary and authoritative sources: regulators, governments, standards bodies, cybersecurity agencies, telecom operators, established technology vendors, and recognized multilateral institutions. Give priority to Ghana, Africa, ECOWAS, the African Union, and ITU-relevant signals while still including material global developments.
 
@@ -80,7 +80,7 @@ Every claimed trend must be supported by a reference URL that you actually found
 Write for an executive and regulatory audience. Keep the executive snapshot concise. Provide at least three priority trends. Separate what happened from why it matters, the signal, and the risk or opportunity. Return only content that conforms to the supplied JSON schema.
 PROMPT
 
-USER_PROMPT="Prepare the report for ${WEEK_START} through ${WEEK_END} (${REPORTING_WEEK}). Set preparedBy to Innovation Unit and reportingWeek to ${REPORTING_WEEK}."
+USER_PROMPT="Prepare the report for ${WEEK_START} through ${WEEK_END} (${REPORTING_WEEK}). Set preparedBy to Innovation & Policy and reportingWeek to ${REPORTING_WEEK}."
 
 REQUEST_JSON="$({
   jq -n \
@@ -95,10 +95,11 @@ REQUEST_JSON="$({
       reasoning: {effort: $effort},
       tools: [{
         type: "web_search",
+        external_web_access: true,
         search_context_size: "medium",
         user_location: {type: "approximate", country: "GH"}
       }],
-      tool_choice: "auto",
+      tool_choice: "required",
       instructions: $instructions,
       input: $input,
       text: {
@@ -118,16 +119,28 @@ if [[ -n "${OPENAI_RESPONSE_FILE:-}" ]]; then
   RESPONSE_JSON="$(<"${OPENAI_RESPONSE_FILE}")"
 else
   require_command curl
-  : "${OPENAI_API_KEY:?Set OPENAI_API_KEY in the scheduler secret environment}"
   printf 'Generating NCA weekly report for %s through %s with %s.\n' "${WEEK_START}" "${WEEK_END}" "${OPENAI_MODEL}" >&2
-  RESPONSE_JSON="$(
-    curl --fail-with-body --silent --show-error \
-      --max-time "${OPENAI_TIMEOUT_SECONDS}" \
-      -H 'Content-Type: application/json' \
-      -H "Authorization: Bearer ${OPENAI_API_KEY}" \
-      -X POST "${OPENAI_API_BASE%/}/responses" \
-      -d "${REQUEST_JSON}"
-  )" || die "OpenAI Responses API request failed"
+  if [[ -n "${OPENAI_PROXY_URL:-}" ]]; then
+    : "${AGENT_API_KEY:?Set AGENT_API_KEY for the provider proxy}"
+    RESPONSE_JSON="$(
+      curl --fail-with-body --silent --show-error \
+        --max-time "${OPENAI_TIMEOUT_SECONDS}" \
+        -H 'Content-Type: application/json' \
+        -H "X-Agent-Key: ${AGENT_API_KEY}" \
+        -X POST "${OPENAI_PROXY_URL}" \
+        -d "${REQUEST_JSON}"
+    )" || die "Provider proxy request failed"
+  else
+    : "${OPENAI_API_KEY:?Set OPENAI_API_KEY or OPENAI_PROXY_URL}"
+    RESPONSE_JSON="$(
+      curl --fail-with-body --silent --show-error \
+        --max-time "${OPENAI_TIMEOUT_SECONDS}" \
+        -H 'Content-Type: application/json' \
+        -H "Authorization: Bearer ${OPENAI_API_KEY}" \
+        -X POST "${OPENAI_API_BASE%/}/responses" \
+        -d "${REQUEST_JSON}"
+    )" || die "OpenAI Responses API request failed"
+  fi
 fi
 
 jq -e . >/dev/null <<<"${RESPONSE_JSON}" || die "provider response was not valid JSON"
@@ -152,7 +165,7 @@ jq -e . >/dev/null <<<"${CONTENT_JSON}" || die "model output was not valid JSON"
 CONTENT_JSON="$({
   jq \
     --arg reportingWeek "${REPORTING_WEEK}" \
-    '.reportingWeek = $reportingWeek | .preparedBy = "Innovation Unit"' \
+    '.reportingWeek = $reportingWeek | .preparedBy = "Innovation & Policy"' \
     <<<"${CONTENT_JSON}"
 })"
 

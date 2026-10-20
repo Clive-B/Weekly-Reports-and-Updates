@@ -226,6 +226,9 @@ button {
   border-radius: 999px;
   font-size: 0.88rem;
 }
+.provider-key-card { max-width: 780px; padding-top: 8px; }
+.provider-key-card h3 { margin: 0 0 6px; }
+.provider-key-card > p:not(.status):not(.auth-error) { color: #d9e8f6; margin: 0 0 14px; }
 
 .auth-modal-inline { margin-bottom: 20px; }
 .auth-card {
@@ -365,12 +368,16 @@ button {
 .trend-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 18px; }
 .field .label { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.45px; color: var(--muted); font-weight: 700; margin-bottom: 5px; }
 .field .text { color: var(--ink); font-size: 0.96rem; white-space: pre-line; }
-.horizon-grid, .implications-grid, .attention-grid, .notes-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.horizon-grid, .implications-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.attention-grid, .notes-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; align-items: stretch; }
 .mini-card { border: 1px solid var(--line); border-radius: 18px; padding: 16px; background: color-mix(in srgb, var(--card) 94%, #fbfdff 6%); }
 .mini-card h4 { margin: 0 0 8px; color: var(--primary); font-size: 1rem; }
 .mini-card p { margin: 0 0 10px; color: var(--ink); font-size: 0.95rem; white-space: pre-line; }
 .attention-card ul, .notes-grid ul { margin: 0; padding-left: 18px; }
 .attention-card li, .notes-grid li, #referencesList li { margin: 0 0 8px; color: var(--ink); }
+.list-item-card { display: flex; gap: 12px; min-width: 0; height: 100%; }
+.list-item-card p { margin: 2px 0 0; line-height: 1.55; }
+.list-item-number { flex: 0 0 30px; width: 30px; height: 30px; display: grid; place-items: center; border-radius: 999px; background: var(--soft); color: var(--primary); font-size: 0.8rem; font-weight: 800; }
 pre {
   overflow: auto;
   min-height: 260px;
